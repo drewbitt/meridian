@@ -1,8 +1,8 @@
 tmp/
 pb_data/
-assets/dist/
+assets/dist/*
 !assets/dist/.gitkeep
 *_templ.go
-circadian
+/circadian
 *.exe
 .env
