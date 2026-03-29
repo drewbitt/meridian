@@ -21,7 +21,22 @@ docker run -d \
   ghcr.io/drewbitt/circadian:latest
 ```
 
-Open `http://localhost:8090`, create an account, and log your first night of sleep.
+Then open `http://localhost:8090`.
+
+On first launch, PocketBase will print a one-time setup URL to create a superuser account — open it in your browser. The log also suggests a CLI command, but that won't work because the image is distroless (no shell). Use the browser URL instead.
+
+After that, register a regular user account at `/register` and log your first night of sleep.
+
+Once you've registered, disable public signups:
+
+```bash
+docker run -d \
+  --name circadian \
+  -p 8090:8090 \
+  -e ALLOW_REGISTRATION=false \
+  -v circadian_data:/pb_data \
+  ghcr.io/drewbitt/circadian:latest
+```
 
 ### Docker Compose
 
@@ -33,6 +48,9 @@ services:
       - "8090:8090"
     volumes:
       - circadian_data:/pb_data
+    environment:
+      - ALLOW_REGISTRATION=false  # set to true for first run
+      - TZ=America/New_York       # your timezone
     restart: unless-stopped
 
 volumes:
@@ -69,7 +87,12 @@ Data lives in `/pb_data` (SQLite database + uploads). Back up this directory.
 
 ## Configuration
 
-All settings are per-user, managed through the Settings page:
+| Variable | Default | Description |
+|---|---|---|
+| `ALLOW_REGISTRATION` | `true` | Set to `false` (or `no`, `off`, `0`) to disable new account creation |
+| `TZ` | `UTC` | Timezone for cron jobs (e.g. `America/New_York`). Affects notification timing. |
+
+Per-user settings are on the Settings page:
 
 - Sleep need (default 8 hours)
 - ntfy server, topic, and access token
