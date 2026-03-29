@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/drewbitt/circadian/internal/ingest"
 	"github.com/pocketbase/pocketbase"
@@ -22,10 +23,17 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/settings")
 		}
 
-		nonce := generateNonce()
+		cfg := fitbitConfig(app)
+		if cfg == nil {
+			return re.BadRequestError("Fitbit OAuth not configured", nil)
+		}
+
+		nonce, err := generateNonce()
+		if err != nil {
+			return re.InternalServerError("Failed to generate nonce", err)
+		}
 		state := signState(app, info.Auth.Id, nonce)
 
-		cfg := fitbitConfig(re.Request)
 		url := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline)
 		return re.Redirect(http.StatusTemporaryRedirect, url)
 	})
@@ -43,7 +51,11 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 			return re.BadRequestError("Invalid state", err)
 		}
 
-		cfg := fitbitConfig(re.Request)
+		cfg := fitbitConfig(app)
+		if cfg == nil {
+			return re.BadRequestError("Fitbit OAuth not configured", nil)
+		}
+
 		token, err := cfg.Exchange(context.Background(), code)
 		if err != nil {
 			return re.InternalServerError("Token exchange failed", err)
@@ -68,24 +80,46 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	})
 }
 
-func fitbitConfig(r *http.Request) *oauth2.Config {
-	cfg := *ingest.FitbitOAuthConfig
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
+func fitbitConfig(app *pocketbase.PocketBase) *oauth2.Config {
+	settings, err := app.FindFirstRecordByFilter("settings", "fitbit_client_id != ''", nil)
+	if err != nil {
+		return nil
 	}
-	cfg.RedirectURL = scheme + "://" + r.Host + "/auth/fitbit/callback"
-	return &cfg
+
+	siteURL := settings.GetString("site_url")
+	if siteURL == "" {
+		siteURL = app.Settings().Meta.AppURL
+	}
+
+	cfg := &oauth2.Config{
+		ClientID:     settings.GetString("fitbit_client_id"),
+		ClientSecret: settings.GetString("fitbit_client_secret"),
+		Scopes:       []string{"sleep"},
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://www.fitbit.com/oauth2/authorize",
+			TokenURL: "https://api.fitbit.com/oauth2/token",
+		},
+		RedirectURL: strings.TrimRight(siteURL, "/") + "/auth/fitbit/callback",
+	}
+
+	if cfg.ClientID == "" || cfg.ClientSecret == "" {
+		return nil
+	}
+
+	ingest.FitbitOAuthConfig = cfg
+	return cfg
 }
 
-func generateNonce() string {
+func generateNonce() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func oauthSecret(app *pocketbase.PocketBase) []byte {
-	return []byte(app.Settings().Meta.AppURL + ":" + app.Settings().Meta.AppName)
+	return []byte(app.Settings().Meta.AppURL + ":" + app.Settings().Meta.SenderAddress + ":" + app.Settings().Meta.SenderName)
 }
 
 func signState(app *pocketbase.PocketBase, userID, nonce string) string {

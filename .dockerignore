@@ -1,5 +1,14 @@
 .git
+.github
+.air.toml
+.dockerignore
+.env
+.gitignore
+.golangci.yml
+Dockerfile
+README.md
+mise.toml
+circadian
 tmp
 pb_data
-.env
 *.exe

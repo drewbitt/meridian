@@ -53,7 +53,7 @@ func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 		}
 
 		rec := SleepRecord{
-			Date:            start.Truncate(24 * time.Hour),
+			Date:            dateOnly(start),
 			SleepStart:      start,
 			SleepEnd:        end,
 			Source:          SourceHealthConnect,

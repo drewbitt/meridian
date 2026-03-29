@@ -1,6 +1,6 @@
 module github.com/drewbitt/circadian
 
-go 1.26.1
+go 1.26
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect

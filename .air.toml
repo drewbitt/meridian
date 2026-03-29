@@ -4,7 +4,7 @@ tmp_dir = "tmp"
 [build]
   cmd = "go build -o ./tmp/main ./cmd/circadian"
   bin = "./tmp/main"
-  entrypoint = ["./tmp/main", "serve"]
+  entrypoint = ["./tmp/main", "serve", "--dir=pb_data"]
   delay = 1000
   exclude_dir = ["assets", "tmp", "pb_data", "vendor", "testdata"]
   exclude_regex = ["_test\\.go$"]

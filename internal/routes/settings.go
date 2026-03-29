@@ -36,6 +36,8 @@ func registerSettingsRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 			NtfyServer           string  `json:"ntfy_server" form:"ntfy_server"`
 			NtfyAccessToken      string  `json:"ntfy_access_token" form:"ntfy_access_token"`
 			SiteURL              string  `json:"site_url" form:"site_url"`
+			FitbitClientID       string  `json:"fitbit_client_id" form:"fitbit_client_id"`
+			FitbitClientSecret   string  `json:"fitbit_client_secret" form:"fitbit_client_secret"`
 			NotificationsEnabled bool    `json:"notifications_enabled" form:"notifications_enabled"`
 		}{}
 		if err := re.BindBody(&data); err != nil {
@@ -62,6 +64,12 @@ func registerSettingsRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 		}
 		settings.Set("ntfy_access_token", data.NtfyAccessToken)
 		settings.Set("site_url", data.SiteURL)
+		if data.FitbitClientID != "" {
+			settings.Set("fitbit_client_id", data.FitbitClientID)
+		}
+		if data.FitbitClientSecret != "" {
+			settings.Set("fitbit_client_secret", data.FitbitClientSecret)
+		}
 		settings.Set("notifications_enabled", data.NotificationsEnabled)
 
 		if err := app.Save(settings); err != nil {

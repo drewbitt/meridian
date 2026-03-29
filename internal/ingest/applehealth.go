@@ -28,6 +28,8 @@ const (
 	ahAwake      = "HKCategoryValueSleepAnalysisAwake"
 	// Pre-iOS 16
 	ahAsleep = "HKCategoryValueSleepAnalysisAsleep"
+	// iOS 16+ stage unknown
+	ahAsleepUnspecified = "HKCategoryValueSleepAnalysisAsleepUnspecified"
 )
 
 // ParseAppleHealthZip reads an Apple Health export ZIP file and extracts sleep records.
@@ -149,7 +151,7 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 		case ahAsleepREM:
 			nd.remMins += mins
 			nd.totalMins += mins
-		case ahAsleepCore, ahAsleep:
+		case ahAsleepCore, ahAsleep, ahAsleepUnspecified:
 			nd.lightMins += mins
 			nd.totalMins += mins
 		case ahAwake:
@@ -160,14 +162,13 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 	}
 
 	var records []SleepRecord
-	for dateStr, nd := range nights {
-		date, _ := time.Parse("2006-01-02", dateStr)
+	for _, nd := range nights {
 		total := nd.totalMins
 		if total == 0 {
 			total = int(nd.sleepEnd.Sub(nd.sleepStart).Minutes())
 		}
 		records = append(records, SleepRecord{
-			Date:            date,
+			Date:            dateOnly(nd.sleepStart),
 			SleepStart:      nd.sleepStart,
 			SleepEnd:        nd.sleepEnd,
 			Source:          SourceAppleHealth,

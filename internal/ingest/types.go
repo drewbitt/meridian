@@ -25,3 +25,8 @@ const (
 	SourceAppleHealth   = "applehealth"
 	SourceGadgetbridge  = "gadgetbridge"
 )
+
+func dateOnly(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
+}

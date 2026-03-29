@@ -69,7 +69,8 @@ func RunMorningJob(app *pocketbase.PocketBase, userID string) error {
 
 	debt := engine.CalculateSleepDebt(engineRecords, cfg.SleepNeedHours, time.Now())
 
-	wakeTime := time.Now().Truncate(24 * time.Hour).Add(7 * time.Hour)
+	now := time.Now()
+	wakeTime := time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location())
 	if len(sleepPeriods) > 0 {
 		latest := sleepPeriods[0]
 		for _, sp := range sleepPeriods {

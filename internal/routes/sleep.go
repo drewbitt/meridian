@@ -10,6 +10,11 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
+func dateOnly(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
+}
+
 func registerSleepRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	// Manual sleep entry form.
 	se.Router.GET("/sleep", func(re *core.RequestEvent) error {
@@ -54,7 +59,10 @@ func registerSleepRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 		}
 
 		duration := int(sleepEnd.Sub(sleepStart).Minutes())
-		sleepDate := sleepStart.Truncate(24 * time.Hour)
+		if duration > 24*60 {
+			return re.BadRequestError("Sleep duration cannot exceed 24 hours", nil)
+		}
+		sleepDate := dateOnly(sleepStart)
 
 		collection, err := app.FindCollectionByNameOrId("sleep_records")
 		if err != nil {

@@ -14,6 +14,26 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
+const maxUploadSize = 100 << 20
+
+func importFileToDisk(r io.Reader, filename string, parse func(string) ([]ingest.SleepRecord, error)) ([]ingest.SleepRecord, error) {
+	safeName := filepath.Base(filename)
+	tmp, err := os.CreateTemp("", "circadian-import-*-"+safeName)
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmp, r); err != nil {
+		tmp.Close()
+		return nil, err
+	}
+	tmp.Close()
+
+	return parse(tmpPath)
+}
+
 func registerAPIRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	// Get today's energy schedule.
 	se.Router.GET("/api/schedule", func(re *core.RequestEvent) error {
@@ -45,6 +65,8 @@ func registerAPIRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 			return re.BadRequestError("Missing source parameter", nil)
 		}
 
+		re.Request.Body = http.MaxBytesReader(re.Response, re.Request.Body, maxUploadSize)
+
 		file, header, err := re.Request.FormFile("file")
 		if err != nil {
 			return re.BadRequestError("Missing file", err)
@@ -55,37 +77,21 @@ func registerAPIRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 
 		switch source {
 		case "healthconnect":
-			records, err = ingest.ParseHealthConnect(file)
+			records, err = ingest.ParseHealthConnect(io.LimitReader(file, maxUploadSize))
 		case "applehealth":
-			// Apple Health needs a file on disk (ZIP handling).
-			tmpDir := os.TempDir()
-			tmpPath := filepath.Join(tmpDir, header.Filename)
-			tmp, err2 := os.Create(tmpPath)
-			if err2 != nil {
-				return re.InternalServerError("", err2)
-			}
-			io.Copy(tmp, file)
-			tmp.Close()
-			defer os.Remove(tmpPath)
-
-			if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
-				records, err = ingest.ParseAppleHealthZip(tmpPath)
-			} else {
-				f, _ := os.Open(tmpPath)
+			records, err = importFileToDisk(io.LimitReader(file, maxUploadSize), header.Filename, func(tmpPath string) ([]ingest.SleepRecord, error) {
+				if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+					return ingest.ParseAppleHealthZip(tmpPath)
+				}
+				f, ferr := os.Open(tmpPath)
+				if ferr != nil {
+					return nil, ferr
+				}
 				defer f.Close()
-				records, err = ingest.ParseAppleHealthXML(f)
-			}
+				return ingest.ParseAppleHealthXML(f)
+			})
 		case "gadgetbridge":
-			tmpDir := os.TempDir()
-			tmpPath := filepath.Join(tmpDir, header.Filename)
-			tmp, err2 := os.Create(tmpPath)
-			if err2 != nil {
-				return re.InternalServerError("", err2)
-			}
-			io.Copy(tmp, file)
-			tmp.Close()
-			defer os.Remove(tmpPath)
-			records, err = ingest.ParseGadgetbridge(tmpPath)
+			records, err = importFileToDisk(io.LimitReader(file, maxUploadSize), header.Filename, ingest.ParseGadgetbridge)
 		default:
 			return re.BadRequestError("Unknown source: "+source, nil)
 		}

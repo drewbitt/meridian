@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - run: go install github.com/a-h/templ/cmd/templ@latest
+      - run: templ generate
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
@@ -28,6 +30,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - run: go install github.com/a-h/templ/cmd/templ@latest
+      - run: templ generate
       - run: go test -race ./...
 
   build:
@@ -37,6 +41,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - run: go install github.com/a-h/templ/cmd/templ@latest
+      - run: templ generate
       - run: go build ./cmd/circadian
 
   tidy:
@@ -46,4 +52,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - run: go install github.com/a-h/templ/cmd/templ@latest
+      - run: templ generate
       - run: go mod tidy -diff

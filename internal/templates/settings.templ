@@ -87,6 +87,34 @@ templ Settings(settings *core.Record) {
 						<p class="mt-1 text-xs text-gray-500">Enables tap-to-open in notifications</p>
 					</div>
 
+					<div>
+						<label for="fitbit_client_id" class="block text-sm font-medium text-gray-300 mb-2">
+							Fitbit Client ID
+						</label>
+						<input
+							type="text"
+							id="fitbit_client_id"
+							name="fitbit_client_id"
+							placeholder="Fitbit OAuth client ID"
+							value={ getSettingStr(settings, "fitbit_client_id") }
+							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+						/>
+					</div>
+
+					<div>
+						<label for="fitbit_client_secret" class="block text-sm font-medium text-gray-300 mb-2">
+							Fitbit Client Secret
+						</label>
+						<input
+							type="password"
+							id="fitbit_client_secret"
+							name="fitbit_client_secret"
+							placeholder="Fitbit OAuth client secret"
+							value={ getSettingStr(settings, "fitbit_client_secret") }
+							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+						/>
+					</div>
+
 					<div class="flex items-center gap-3">
 						<input
 							type="checkbox"
