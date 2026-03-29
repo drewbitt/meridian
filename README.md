@@ -1,89 +1,113 @@
 # Circadian
 
-Self-hosted circadian rhythm tracker with energy schedule predictions, sleep debt tracking, and timed notifications.
+[![CI](https://github.com/drewbitt/circadian/actions/workflows/ci.yml/badge.svg)](https://github.com/drewbitt/circadian/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/github/license/drewbitt/circadian)](LICENSE)
 
-**One Go binary. One SQLite file.**
+Self-hosted circadian rhythm tracker. Predicts energy levels using sleep science, tracks sleep debt, and sends timed notifications via ntfy.
 
-## Features
+One Go binary. One SQLite file.
 
-- **FIPS Three Process Model** — scientifically-grounded alertness prediction (homeostatic pressure + circadian rhythm + ultradian rhythm + sleep inertia)
-- **14-day weighted sleep debt** — tracks cumulative deficit with recency weighting
-- **Energy zone classification** — morning peak, afternoon dip, evening peak, wind-down, melatonin window
-- **Smart notifications** via [ntfy](https://ntfy.sh) — caffeine cutoff, energy dip, focus windows, bedtime reminders
-- **5 data sources**: manual entry, Fitbit OAuth2, Android Health Connect, Apple Health XML, Gadgetbridge SQLite
-- **Dark-themed dashboard** with real-time energy curve (Chart.js + Datastar SSE)
-- Built on [PocketBase](https://pocketbase.io) — embedded auth, admin UI, SQLite, cron
+<!-- ![Circadian Dashboard](docs/screenshot.png) -->
 
-## Running Locally
+## Quick Start
 
-Requires [mise](https://mise.jdx.dev/) for tool management and task running.
+### Docker
 
 ```bash
-# Install tools (Go, templ, air) and download Tailwind binary
-mise install
-mise run setup
-
-# Start dev servers (templ watch + tailwind watch + air hot reload)
-mise run dev
+docker run -d \
+  --name circadian \
+  -p 8090:8090 \
+  -v circadian_data:/pb_data \
+  ghcr.io/drewbitt/circadian:latest
 ```
 
-Visit `http://localhost:8090` for the app and `http://localhost:8090/_/` for the PocketBase admin panel. Create a superuser account on first run via the admin panel, then create your user account.
+Open `http://localhost:8090`, create an account, and log your first night of sleep.
 
-### Other commands
+### Docker Compose
 
-```bash
-mise run test           # run all tests
-mise run test:engine    # run engine tests only
-mise run build          # production binary → ./circadian
-mise run vet            # go vet
-mise run fmt            # go fmt
-mise run generate       # regenerate templ + tailwind
-mise run clean          # remove build artifacts
-mise tasks              # list everything
+```yaml
+services:
+  circadian:
+    image: ghcr.io/drewbitt/circadian:latest
+    ports:
+      - "8090:8090"
+    volumes:
+      - circadian_data:/pb_data
+    restart: unless-stopped
+
+volumes:
+  circadian_data:
 ```
 
-### Production (without Docker)
-
-```bash
-mise run build
-./circadian serve --http=0.0.0.0:8090
-```
-
-Data is stored in `pb_data/` (SQLite + uploads). Back up this directory.
-
-## Docker
+### Build from source
 
 ```bash
 docker build -t circadian .
 docker run -d -p 8090:8090 -v circadian_data:/pb_data circadian
 ```
 
+Data lives in `/pb_data` (SQLite database + uploads). Back up this directory.
+
+## Features
+
+- FIPS Three Process Model for alertness prediction (homeostatic pressure, circadian rhythm, post-lunch dip, sleep inertia)
+- 14-day weighted sleep debt -- recent nights count more
+- Energy zones: morning peak, afternoon dip, evening peak, wind-down, melatonin window
+- Notifications via [ntfy](https://ntfy.sh) -- caffeine cutoff, focus windows, energy dips, bedtime
+- 5 data sources: manual entry, Fitbit (OAuth2, auto-sync every 4h), Health Connect, Apple Health, Gadgetbridge
+- Dark-themed dashboard with real-time energy curve (Chart.js + Datastar SSE)
+
 ## Data Sources
 
-| Source | Method | Auto-sync |
-|--------|--------|-----------|
-| Manual | Web form | — |
-| Fitbit | OAuth2 | Every 4h |
-| Health Connect | JSON file upload | Manual |
-| Apple Health | ZIP/XML file upload | Manual |
-| Gadgetbridge | SQLite file upload | Manual |
-
-## Architecture
-
-- **Backend**: PocketBase (Go) — auth, cron, SQLite, admin UI
-- **Frontend**: Datastar + Templ + Tailwind CSS — server-rendered reactive UI
-- **Engine**: FIPS Three Process Model ported to Go (~250 lines)
-- **Notifications**: ntfy (single HTTP POST per notification)
+| Source | Method | Sync |
+|---|---|---|
+| Manual | Web form | -- |
+| Fitbit | OAuth2 | Every 4 hours |
+| Health Connect | JSON upload | Manual |
+| Apple Health | ZIP/XML upload | Manual |
+| Gadgetbridge | SQLite upload | Manual |
 
 ## Configuration
 
-All settings are per-user via the Settings page:
+All settings are per-user, managed through the Settings page:
 
-- **Sleep need** (default: 8h)
-- **ntfy topic/server** for push notifications
-- **Fitbit** OAuth2 connection
-- **File imports** for Health Connect, Apple Health, Gadgetbridge
+- Sleep need (default 8 hours)
+- ntfy server, topic, and access token
+- Fitbit OAuth2 credentials
+- File imports for Health Connect, Apple Health, and Gadgetbridge
+
+PocketBase admin panel is at `/_/` for superuser operations.
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | [PocketBase](https://pocketbase.io) (Go) -- auth, cron, SQLite, admin |
+| Frontend | [Datastar](https://data-star.dev) + [Templ](https://templ.guide) + Tailwind CSS |
+| Engine | FIPS Three Process Model in Go (~250 lines) |
+| Notifications | [ntfy](https://ntfy.sh) (single HTTP POST) |
+| Database | SQLite (embedded) |
+
+## Development
+
+Requires [mise](https://mise.jdx.dev/) for tool management.
+
+```bash
+mise install          # install Go, templ, air, tailwind
+mise run setup        # download dependencies
+mise run dev          # start dev servers (templ watch + tailwind watch + hot reload)
+```
+
+App runs at `http://localhost:8090`. PocketBase admin at `http://localhost:8090/_/`.
+
+```bash
+mise run test         # run all tests
+mise run build        # production binary -> ./circadian
+mise run fmt          # format code
+mise run vet          # lint
+mise tasks            # list all commands
+```
 
 ## License
 
-MIT
+[AGPL-3.0](LICENSE)
