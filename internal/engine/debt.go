@@ -9,6 +9,7 @@ import (
 // DebtCategory classifies sleep debt severity.
 type DebtCategory string
 
+// DebtCategory values classify sleep debt severity.
 const (
 	DebtNone     DebtCategory = "none"     // < 1h
 	DebtLow      DebtCategory = "low"      // < 5h
@@ -52,8 +53,11 @@ func CalculateSleepDebt(records []SleepRecord, sleepNeedHours float64, reference
 	var totalDeficit float64
 	var totalWeight float64
 
-	for i := 0; i < debtWindowDays; i++ {
-		actual := dailySleep[i] // 0 if no data
+	for i := range debtWindowDays {
+		actual, hasData := dailySleep[i]
+		if !hasData {
+			continue // skip nights with no data
+		}
 		deficit := math.Max(0, sleepNeedHours-actual)
 		totalDeficit += deficit * weights[i]
 		totalWeight += weights[i]

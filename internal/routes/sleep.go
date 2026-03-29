@@ -24,9 +24,9 @@ func registerSleepRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 		}
 
 		var buf bytes.Buffer
-		templates.SleepEntry().Render(re.Request.Context(), &buf)
+		_ = templates.SleepEntry().Render(re.Request.Context(), &buf)
 		re.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
-		re.Response.Write(buf.Bytes())
+		_, _ = re.Response.Write(buf.Bytes())
 		return nil
 	})
 

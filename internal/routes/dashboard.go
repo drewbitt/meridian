@@ -34,7 +34,7 @@ func registerDashboardRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 			return re.InternalServerError("render failed", err)
 		}
 		re.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
-		re.Response.Write(buf.Bytes())
+		_, _ = re.Response.Write(buf.Bytes())
 		return nil
 	})
 
@@ -50,22 +50,22 @@ func registerDashboardRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 
 		schedule, debt, err := loadTodayData(app, userID)
 		if err != nil {
-			sse.PatchElements(`<div id="error">Failed to load data</div>`)
+			_ = sse.PatchElements(`<div id="error">Failed to load data</div>`)
 			return nil
 		}
 
 		// Send chart data as a script execution.
 		chartData, _ := json.Marshal(schedule.Points)
-		sse.ExecuteScript(fmt.Sprintf(`window.updateEnergyChart(%s)`, chartData))
+		_ = sse.ExecuteScript(fmt.Sprintf(`window.updateEnergyChart(%s)`, chartData))
 
 		// Patch the debt card.
 		var buf bytes.Buffer
-		templates.DebtCard(debt).Render(re.Request.Context(), &buf)
-		sse.PatchElements(buf.String())
+		_ = templates.DebtCard(debt).Render(re.Request.Context(), &buf)
+		_ = sse.PatchElements(buf.String())
 
 		buf.Reset()
-		templates.TodaySchedule(schedule).Render(re.Request.Context(), &buf)
-		sse.PatchElements(buf.String())
+		_ = templates.TodaySchedule(schedule).Render(re.Request.Context(), &buf)
+		_ = sse.PatchElements(buf.String())
 
 		return nil
 	})
@@ -84,7 +84,7 @@ func loadTodayData(app *pocketbase.PocketBase, userID string) (engine.Schedule, 
 		var points []engine.EnergyPoint
 		raw := scheduleRec.Get("schedule_json")
 		if data, err := json.Marshal(raw); err == nil {
-			json.Unmarshal(data, &points)
+			_ = json.Unmarshal(data, &points)
 		}
 		wakeTime := scheduleRec.GetDateTime("wake_time").Time()
 		schedule := engine.ClassifyZones(points, wakeTime)

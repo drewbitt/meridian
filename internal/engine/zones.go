@@ -7,26 +7,26 @@ import (
 
 // Zone names for the energy schedule.
 const (
-	ZoneSleepInertia   = "sleep_inertia"
-	ZoneMorningPeak    = "morning_peak"
-	ZoneAfternoonDip   = "afternoon_dip"
-	ZoneEveningPeak    = "evening_peak"
-	ZoneWindDown       = "wind_down"
+	ZoneSleepInertia    = "sleep_inertia"
+	ZoneMorningPeak     = "morning_peak"
+	ZoneAfternoonDip    = "afternoon_dip"
+	ZoneEveningPeak     = "evening_peak"
+	ZoneWindDown        = "wind_down"
 	ZoneMelatoninWindow = "melatonin_window"
-	ZoneNormal         = "normal"
-	ZoneSleep          = "sleep"
+	ZoneNormal          = "normal"
+	ZoneSleep           = "sleep"
 )
 
 // Schedule holds the classified energy zones and derived times for a day.
 type Schedule struct {
-	Points           []EnergyPoint `json:"points"`
-	WakeTime         time.Time     `json:"wake_time"`
-	CaffeineCutoff   time.Time     `json:"caffeine_cutoff"`
-	OptimalNapStart  time.Time     `json:"optimal_nap_start"`
-	OptimalNapEnd    time.Time     `json:"optimal_nap_end"`
-	MelatoninWindow  time.Time     `json:"melatonin_window"`
-	BestFocusStart   time.Time     `json:"best_focus_start"`
-	BestFocusEnd     time.Time     `json:"best_focus_end"`
+	Points          []EnergyPoint `json:"points"`
+	WakeTime        time.Time     `json:"wake_time"`
+	CaffeineCutoff  time.Time     `json:"caffeine_cutoff"`
+	OptimalNapStart time.Time     `json:"optimal_nap_start"`
+	OptimalNapEnd   time.Time     `json:"optimal_nap_end"`
+	MelatoninWindow time.Time     `json:"melatonin_window"`
+	BestFocusStart  time.Time     `json:"best_focus_start"`
+	BestFocusEnd    time.Time     `json:"best_focus_end"`
 }
 
 // ClassifyZones assigns energy zone labels to each point and derives key times.
@@ -63,10 +63,10 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time) Schedule {
 
 	// Find local extrema in wake points after inertia.
 	type extremum struct {
-		idx    int
-		isMax  bool
-		value  float64
-		time   time.Time
+		idx   int
+		isMax bool
+		value float64
+		time  time.Time
 	}
 	var extrema []extremum
 
@@ -87,11 +87,12 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time) Schedule {
 	var morningPeak, afternoonDip, eveningPeak *extremum
 	for i := range extrema {
 		e := &extrema[i]
-		if morningPeak == nil && e.isMax {
+		switch {
+		case morningPeak == nil && e.isMax:
 			morningPeak = e
-		} else if morningPeak != nil && afternoonDip == nil && !e.isMax {
+		case morningPeak != nil && afternoonDip == nil && !e.isMax:
 			afternoonDip = e
-		} else if afternoonDip != nil && eveningPeak == nil && e.isMax {
+		case afternoonDip != nil && eveningPeak == nil && e.isMax:
 			eveningPeak = e
 		}
 	}

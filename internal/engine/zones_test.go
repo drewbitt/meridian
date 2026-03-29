@@ -64,16 +64,18 @@ func TestClassifyZones_DerivedTimes(t *testing.T) {
 	points := PredictEnergy(periods, wakeTime, wakeTime.Add(20*time.Hour))
 	schedule := ClassifyZones(points, wakeTime)
 
-	// Best focus should be set.
-	if schedule.BestFocusStart.IsZero() {
-		t.Error("Expected BestFocusStart to be set")
-	}
-	if schedule.BestFocusEnd.IsZero() {
-		t.Error("Expected BestFocusEnd to be set")
+	// With FIPS params (S0=7.96), alertness rises from morning toward the
+	// circadian peak at ~16.8h. A morning peak may not exist, so BestFocus
+	// can be zero. When set, it must be after wake time.
+	if !schedule.BestFocusStart.IsZero() && schedule.BestFocusStart.Before(wakeTime) {
+		t.Error("BestFocusStart should be after wake time")
 	}
 
-	// Focus window should be after wake time.
-	if schedule.BestFocusStart.Before(wakeTime) {
-		t.Error("BestFocusStart should be after wake time")
+	// Melatonin window and caffeine cutoff should always be derived.
+	if schedule.MelatoninWindow.IsZero() {
+		t.Error("Expected MelatoninWindow to be set")
+	}
+	if schedule.CaffeineCutoff.IsZero() {
+		t.Error("Expected CaffeineCutoff to be set")
 	}
 }

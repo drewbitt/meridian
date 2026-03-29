@@ -83,7 +83,7 @@ func registerAPIRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 				if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
 					return ingest.ParseAppleHealthZip(tmpPath)
 				}
-				f, ferr := os.Open(tmpPath)
+				f, ferr := os.Open(tmpPath) //nolint:gosec // tmpPath from our own CreateTemp
 				if ferr != nil {
 					return nil, ferr
 				}

@@ -2,11 +2,14 @@ package ingest
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // SQLite driver for Gadgetbridge databases
 )
+
+var errNoSleepTable = errors.New("no SLEEP_SESSION table")
 
 // Gadgetbridge activity type constants.
 const (
@@ -41,7 +44,7 @@ func parseGBSleepSessions(db *sql.DB) ([]SleepRecord, error) {
 	var tableName string
 	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='SLEEP_SESSION'`).Scan(&tableName)
 	if err != nil {
-		return nil, fmt.Errorf("no SLEEP_SESSION table")
+		return nil, errNoSleepTable
 	}
 
 	rows, err := db.Query(`
@@ -59,7 +62,6 @@ func parseGBSleepSessions(db *sql.DB) ([]SleepRecord, error) {
 		return nil, fmt.Errorf("query sleep sessions: %w", err)
 	}
 	defer rows.Close()
-
 	var records []SleepRecord
 	for rows.Next() {
 		var startTS, endTS int64

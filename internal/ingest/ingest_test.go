@@ -18,9 +18,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func mustExec(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.Exec(query, args...); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func openTestdata(t *testing.T, name string) io.Reader {
 	t.Helper()
-	f, err := os.Open(filepath.Join("testdata", name))
+	f, err := os.Open(filepath.Join("testdata", name)) //nolint:gosec // testdata path is controlled
 	if err != nil {
 		t.Fatalf("open testdata/%s: %v", name, err)
 	}
@@ -394,7 +401,7 @@ func TestParseAppleHealthXML_TruncatedXML(t *testing.T) {
 func createAppleHealthZip(t *testing.T, xmlContent string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "apple_health_export.zip")
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // temp dir path is safe
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +411,9 @@ func createAppleHealthZip(t *testing.T, xmlContent string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wf.Write([]byte(xmlContent))
+	if _, err := wf.Write([]byte(xmlContent)); err != nil {
+		t.Fatal(err)
+	}
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +442,7 @@ func TestParseAppleHealthZip(t *testing.T) {
 
 func TestParseAppleHealthZip_NoExportXML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "empty.zip")
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // temp dir path is safe
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,8 +451,12 @@ func TestParseAppleHealthZip_NoExportXML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wf.Write([]byte("not export.xml"))
-	w.Close()
+	if _, err := wf.Write([]byte("not export.xml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	f.Close()
 
 	_, err = ParseAppleHealthZip(path)
@@ -460,7 +473,9 @@ func TestParseAppleHealthFile(t *testing.T) {
 
 	t.Run("xml file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "export.xml")
-		os.WriteFile(path, []byte(xmlContent), 0644)
+		if err := os.WriteFile(path, []byte(xmlContent), 0o644); err != nil { //nolint:gosec // test temp dir
+			t.Fatal(err)
+		}
 		records, err := ParseAppleHealthFile(path)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -486,7 +501,7 @@ func TestParseAppleHealthFile(t *testing.T) {
 
 func TestParseGadgetbridge_SleepSessions(t *testing.T) {
 	db := createTestDBConn(t, func(db *sql.DB) {
-		db.Exec(`CREATE TABLE SLEEP_SESSION (
+		mustExec(t, db, `CREATE TABLE SLEEP_SESSION (
 			TIMESTAMP_START INTEGER,
 			TIMESTAMP_END INTEGER,
 			DEEP_SLEEP_MINUTES INTEGER,
@@ -494,8 +509,8 @@ func TestParseGadgetbridge_SleepSessions(t *testing.T) {
 			LIGHT_SLEEP_MINUTES INTEGER,
 			AWAKE_MINUTES INTEGER
 		)`)
-		db.Exec(`INSERT INTO SLEEP_SESSION VALUES (1710108000, 1710136800, 95, 72, 210, 35)`)
-		db.Exec(`INSERT INTO SLEEP_SESSION VALUES (1710194400, 1710223200, 80, 60, 240, 20)`)
+		mustExec(t, db, `INSERT INTO SLEEP_SESSION VALUES (1710108000, 1710136800, 95, 72, 210, 35)`)
+		mustExec(t, db, `INSERT INTO SLEEP_SESSION VALUES (1710194400, 1710223200, 80, 60, 240, 20)`)
 	})
 
 	records, err := parseGBSleepSessions(db)
@@ -527,17 +542,17 @@ func TestParseGadgetbridge_SleepSessions(t *testing.T) {
 func TestParseGadgetbridge_ActivitySamples(t *testing.T) {
 	// 40 samples at 1-min intervals: 20 deep + 20 light
 	db := createTestDBConn(t, func(db *sql.DB) {
-		db.Exec(`CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
+		mustExec(t, db, `CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
 			TIMESTAMP INTEGER,
 			RAW_INTENSITY INTEGER,
 			RAW_KIND INTEGER
 		)`)
 		baseTS := int64(1710108000)
-		for i := 0; i < 20; i++ {
-			db.Exec(`INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 10, 4)`, baseTS+int64(i*60))
+		for i := range 20 {
+			mustExec(t, db, `INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 10, 4)`, baseTS+int64(i*60))
 		}
-		for i := 0; i < 20; i++ {
-			db.Exec(`INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 20, 5)`, baseTS+int64((20+i)*60))
+		for i := range 20 {
+			mustExec(t, db, `INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 20, 5)`, baseTS+int64((20+i)*60))
 		}
 	})
 
@@ -566,18 +581,18 @@ func TestParseGadgetbridge_GapSplitting(t *testing.T) {
 	// Gap: 45 min (> 30 min threshold)
 	// Period 2: 35 light samples (35 min, kept)
 	db := createTestDBConn(t, func(db *sql.DB) {
-		db.Exec(`CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
+		mustExec(t, db, `CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
 			TIMESTAMP INTEGER,
 			RAW_INTENSITY INTEGER,
 			RAW_KIND INTEGER
 		)`)
 		baseTS := int64(1710108000)
-		for i := 0; i < 35; i++ {
-			db.Exec(`INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 10, 4)`, baseTS+int64(i*60))
+		for i := range 35 {
+			mustExec(t, db, `INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 10, 4)`, baseTS+int64(i*60))
 		}
 		period2Start := baseTS + int64(35*60) + int64(45*60)
-		for i := 0; i < 35; i++ {
-			db.Exec(`INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 15, 5)`, period2Start+int64(i*60))
+		for i := range 35 {
+			mustExec(t, db, `INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 15, 5)`, period2Start+int64(i*60))
 		}
 	})
 
@@ -602,14 +617,14 @@ func TestParseGadgetbridge_GapSplitting(t *testing.T) {
 func TestParseGadgetbridge_ShortPeriodsFiltered(t *testing.T) {
 	// 15 samples (15 min) < 30 min threshold, should be ignored
 	db := createTestDBConn(t, func(db *sql.DB) {
-		db.Exec(`CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
+		mustExec(t, db, `CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
 			TIMESTAMP INTEGER,
 			RAW_INTENSITY INTEGER,
 			RAW_KIND INTEGER
 		)`)
 		baseTS := int64(1710108000)
-		for i := 0; i < 15; i++ {
-			db.Exec(`INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 10, 4)`, baseTS+int64(i*60))
+		for i := range 15 {
+			mustExec(t, db, `INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 10, 4)`, baseTS+int64(i*60))
 		}
 	})
 
@@ -626,7 +641,7 @@ func TestParseGadgetbridge_SleepSessionsPreferred(t *testing.T) {
 	// When SLEEP_SESSION table exists with data, ParseGadgetbridge uses it
 	// and ignores MI_BAND_ACTIVITY_SAMPLE
 	dbPath := createTestDBPath(t, func(db *sql.DB) {
-		db.Exec(`CREATE TABLE SLEEP_SESSION (
+		mustExec(t, db, `CREATE TABLE SLEEP_SESSION (
 			TIMESTAMP_START INTEGER,
 			TIMESTAMP_END INTEGER,
 			DEEP_SLEEP_MINUTES INTEGER,
@@ -634,14 +649,14 @@ func TestParseGadgetbridge_SleepSessionsPreferred(t *testing.T) {
 			LIGHT_SLEEP_MINUTES INTEGER,
 			AWAKE_MINUTES INTEGER
 		)`)
-		db.Exec(`INSERT INTO SLEEP_SESSION VALUES (1710108000, 1710136800, 90, 60, 200, 30)`)
-		db.Exec(`CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
+		mustExec(t, db, `INSERT INTO SLEEP_SESSION VALUES (1710108000, 1710136800, 90, 60, 200, 30)`)
+		mustExec(t, db, `CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
 			TIMESTAMP INTEGER,
 			RAW_INTENSITY INTEGER,
 			RAW_KIND INTEGER
 		)`)
-		for i := 0; i < 40; i++ {
-			db.Exec(`INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 10, 4)`, 1710108000+int64(i*60))
+		for i := range 40 {
+			mustExec(t, db, `INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 10, 4)`, 1710108000+int64(i*60))
 		}
 	})
 
@@ -691,7 +706,7 @@ func TestFetchFitbitSleep(t *testing.T) {
 		if !strings.Contains(r.URL.Path, "/sleep/date/") {
 			t.Errorf("unexpected URL: %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer srv.Close()
 
@@ -745,8 +760,8 @@ func TestFetchFitbitSleep_NonMainSleep(t *testing.T) {
 		},
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(response)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer srv.Close()
 
@@ -767,9 +782,9 @@ func TestFetchFitbitSleep_NonMainSleep(t *testing.T) {
 }
 
 func TestFetchFitbitSleep_APIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"errors":[{"errorType":"expired_token"}]}`))
+		_, _ = w.Write([]byte(`{"errors":[{"errorType":"expired_token"}]}`))
 	}))
 	defer srv.Close()
 

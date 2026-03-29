@@ -11,6 +11,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
+// SchedulerConfig holds per-user notification and scheduling preferences.
 type SchedulerConfig struct {
 	UserID               string
 	NtfyServer           string
@@ -21,6 +22,8 @@ type SchedulerConfig struct {
 	NotificationsEnabled bool
 }
 
+// RunMorningJob computes and stores the energy schedule for a user,
+// and dispatches scheduled notifications if enabled.
 func RunMorningJob(app *pocketbase.PocketBase, userID string) error {
 	settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
 	if err != nil {

@@ -9,7 +9,7 @@ func TestCalculateSleepDebt_FullSleep(t *testing.T) {
 	// 14 nights of 8h sleep with 8h need → no debt.
 	ref := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	var records []SleepRecord
-	for i := 0; i < 14; i++ {
+	for i := range 14 {
 		date := ref.AddDate(0, 0, -i)
 		records = append(records, SleepRecord{
 			Date:            date,
@@ -31,7 +31,7 @@ func TestCalculateSleepDebt_ConsistentShortSleep(t *testing.T) {
 	// 14 nights of 6h sleep with 8h need → 2h deficit every night.
 	ref := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	var records []SleepRecord
-	for i := 0; i < 14; i++ {
+	for i := range 14 {
 		date := ref.AddDate(0, 0, -i)
 		records = append(records, SleepRecord{
 			Date:            date,
@@ -86,9 +86,76 @@ func TestCalculateSleepDebt_NoRecords(t *testing.T) {
 	ref := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	debt := CalculateSleepDebt(nil, 8.0, ref)
 
-	// No data means maximum sleep need assumed as deficit.
-	if debt.Hours < 7.0 {
-		t.Errorf("Expected high debt with no records, got %.1f", debt.Hours)
+	// No data → no debt (we don't assume missing nights are 0h sleep).
+	if debt.Hours != 0 {
+		t.Errorf("Expected 0 debt with no records, got %.1f", debt.Hours)
+	}
+	if debt.Category != DebtNone {
+		t.Errorf("Expected category 'none', got '%s'", debt.Category)
+	}
+}
+
+func TestCalculateSleepDebt_SingleNight_FullSleep(t *testing.T) {
+	// 1 night of 8h with 8h need → no debt.
+	ref := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	records := []SleepRecord{{
+		Date:            ref,
+		DurationMinutes: 480,
+	}}
+
+	debt := CalculateSleepDebt(records, 8.0, ref)
+
+	if debt.Hours != 0 {
+		t.Errorf("Expected 0 debt for single full night, got %.1f", debt.Hours)
+	}
+}
+
+func TestCalculateSleepDebt_SingleNight_ShortSleep(t *testing.T) {
+	// 1 night of 5h with 8h need → 3h deficit.
+	ref := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	records := []SleepRecord{{
+		Date:            ref,
+		DurationMinutes: 300,
+	}}
+
+	debt := CalculateSleepDebt(records, 8.0, ref)
+
+	if debt.Hours != 3.0 {
+		t.Errorf("Expected 3h debt for single 5h night, got %.1f", debt.Hours)
+	}
+}
+
+func TestCalculateSleepDebt_TwoNights(t *testing.T) {
+	// Night 0: 6h, Night 1: 7h. Need: 8h. Deficits: 2h, 1h.
+	ref := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	records := []SleepRecord{
+		{Date: ref, DurationMinutes: 360},
+		{Date: ref.AddDate(0, 0, -1), DurationMinutes: 420},
+	}
+
+	debt := CalculateSleepDebt(records, 8.0, ref)
+
+	// Weighted average of 2h and 1h, with night 0 weighted more.
+	if debt.Hours < 1.0 || debt.Hours > 2.5 {
+		t.Errorf("Expected debt between 1-2.5h for two short nights, got %.1f", debt.Hours)
+	}
+}
+
+func TestCalculateSleepDebt_GapInData(t *testing.T) {
+	// Night 0: 8h, Night 5: 4h, no data for nights 1-4 and 6-13.
+	// Only the two nights with data should count.
+	ref := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	records := []SleepRecord{
+		{Date: ref, DurationMinutes: 480},
+		{Date: ref.AddDate(0, 0, -5), DurationMinutes: 240},
+	}
+
+	debt := CalculateSleepDebt(records, 8.0, ref)
+
+	// Night 0: 0h deficit (8h sleep), Night 5: 4h deficit.
+	// Should reflect ~4h deficit weighted by night 5's weight only.
+	if debt.Hours < 1.0 || debt.Hours > 5.0 {
+		t.Errorf("Expected moderate debt from one bad night with gap, got %.1f", debt.Hours)
 	}
 }
 

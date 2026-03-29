@@ -51,7 +51,7 @@ Data lives in `/pb_data` (SQLite database + uploads). Back up this directory.
 ## Features
 
 - FIPS Three Process Model for alertness prediction (homeostatic pressure, circadian rhythm, post-lunch dip, sleep inertia)
-- 14-day weighted sleep debt -- recent nights count more
+- 14-day weighted sleep debt -- recent nights count more, accuracy improves with more data
 - Energy zones: morning peak, afternoon dip, evening peak, wind-down, melatonin window
 - Notifications via [ntfy](https://ntfy.sh) -- caffeine cutoff, focus windows, energy dips, bedtime
 - 5 data sources: manual entry, Fitbit (OAuth2, auto-sync every 4h), Health Connect, Apple Health, Gadgetbridge
@@ -94,7 +94,6 @@ Requires [mise](https://mise.jdx.dev/) for tool management.
 
 ```bash
 mise install          # install Go, templ, air, tailwind
-mise run setup        # download dependencies
 mise run dev          # start dev servers (templ watch + tailwind watch + hot reload)
 ```
 
@@ -103,8 +102,6 @@ App runs at `http://localhost:8090`. PocketBase admin at `http://localhost:8090/
 ```bash
 mise run test         # run all tests
 mise run build        # production binary -> ./circadian
-mise run fmt          # format code
-mise run vet          # lint
 mise tasks            # list all commands
 ```
 

@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,10 +12,12 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// FitbitConfig holds OAuth2 configuration for Fitbit.
+var errFitbitAPI = errors.New("fitbit API error")
+
+// FitbitOAuthConfig holds OAuth2 configuration for Fitbit.
 var FitbitOAuthConfig = &oauth2.Config{
 	Scopes: []string{"sleep"},
-	Endpoint: oauth2.Endpoint{
+	Endpoint: oauth2.Endpoint{ //nolint:gosec // OAuth URLs, not credentials
 		AuthURL:  "https://www.fitbit.com/oauth2/authorize",
 		TokenURL: "https://api.fitbit.com/oauth2/token",
 	},
@@ -59,7 +62,7 @@ func FetchFitbitSleep(ctx context.Context, token *oauth2.Token, date time.Time) 
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("fitbit API returned %d: %s", resp.StatusCode, body)
+		return nil, fmt.Errorf("fitbit API returned %d: %s: %w", resp.StatusCode, body, errFitbitAPI)
 	}
 
 	var sleepResp fitbitSleepResponse

@@ -35,6 +35,17 @@ linters:
       exclude-functions:
         - fmt.Fprintf
         - fmt.Sprintf
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*archive/zip.ReadCloser).Close
+        - (mime/multipart.File).Close
+        - (io.Closer).Close
+        - (net/http.ResponseWriter).Write
+        - os.Remove
+    gosec:
+      excludes:
+        - G104 # duplicates errcheck which has finer-grained exclusions
     gocritic:
       enabled-tags:
         - diagnostic

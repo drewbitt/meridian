@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,16 +10,20 @@ import (
 	"time"
 )
 
+var errNtfyStatus = errors.New("ntfy returned error status")
+
 var httpClient = &http.Client{
 	Timeout: 10 * time.Second,
 }
 
+// Action represents a notification action button.
 type Action struct {
 	Type  string `json:"action"`
 	Label string `json:"label"`
 	URL   string `json:"url,omitempty"`
 }
 
+// Notification represents a push notification via ntfy.
 type Notification struct {
 	Server      string
 	Topic       string
@@ -32,6 +37,7 @@ type Notification struct {
 	Actions     []Action
 }
 
+// SendNotification sends a push notification via ntfy.
 func SendNotification(n Notification) error {
 	if n.Server == "" {
 		n.Server = "https://ntfy.sh"
@@ -73,7 +79,7 @@ func SendNotification(n Notification) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("ntfy returned status %d", resp.StatusCode)
+		return fmt.Errorf("ntfy returned status %d: %w", resp.StatusCode, errNtfyStatus)
 	}
 	return nil
 }

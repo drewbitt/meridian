@@ -116,7 +116,7 @@ func render(re *core.RequestEvent, comp templ.Component) error {
 
 func renderRegisterError(re *core.RequestEvent, errMsg string) error {
 	var buf bytes.Buffer
-	templates.Register(errMsg).Render(re.Request.Context(), &buf)
+	_ = templates.Register(errMsg).Render(re.Request.Context(), &buf)
 	re.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	re.Response.WriteHeader(http.StatusBadRequest)
 	re.Response.Write(buf.Bytes())

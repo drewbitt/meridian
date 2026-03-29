@@ -3,12 +3,15 @@ package ingest
 import (
 	"archive/zip"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"time"
 )
+
+var errParseAHTime = errors.New("cannot parse Apple Health time")
 
 // appleHealthRecord represents a single <Record> element in the Apple Health export.
 type appleHealthRecord struct {
@@ -41,14 +44,16 @@ func ParseAppleHealthZip(zipPath string) ([]SleepRecord, error) {
 	defer r.Close()
 
 	for _, f := range r.File {
-		if strings.HasSuffix(f.Name, "export.xml") || f.Name == "apple_health_export/export.xml" {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, fmt.Errorf("open export.xml: %w", err)
-			}
-			defer rc.Close()
-			return parseAppleHealthXML(rc)
+		if !strings.HasSuffix(f.Name, "export.xml") && f.Name != "apple_health_export/export.xml" {
+			continue
 		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open export.xml: %w", err)
+		}
+		records, err := parseAppleHealthXML(rc)
+		_ = rc.Close()
+		return records, err
 	}
 
 	return nil, fmt.Errorf("%w: export.xml not found in zip", ErrInvalidFile)
@@ -65,7 +70,7 @@ func ParseAppleHealthFile(path string) ([]SleepRecord, error) {
 	if strings.HasSuffix(strings.ToLower(path), ".zip") {
 		return ParseAppleHealthZip(path)
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path validated by caller
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +95,7 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 
 	for {
 		token, err := decoder.Token()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -199,5 +204,5 @@ func parseAHTime(s string) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("cannot parse Apple Health time: %s", s)
+	return time.Time{}, fmt.Errorf("%w: %s", errParseAHTime, s)
 }

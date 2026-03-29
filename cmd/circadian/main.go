@@ -184,7 +184,10 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 			s.Set("fitbit_access_token", newToken.AccessToken)
 			s.Set("fitbit_refresh_token", newToken.RefreshToken)
 			s.Set("fitbit_token_expiry", newToken.Expiry)
-			app.Save(s)
+			if err := app.Save(s); err != nil {
+				slog.Error("failed to save fitbit token", "user_id", userID, "error", err)
+				continue
+			}
 			token = newToken
 		}
 
@@ -220,7 +223,10 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 				record.Set("rem_minutes", rec.REMMinutes)
 				record.Set("light_minutes", rec.LightMinutes)
 				record.Set("awake_minutes", rec.AwakeMinutes)
-				app.Save(record)
+				if err := app.Save(record); err != nil {
+					slog.Error("failed to save fitbit record", "user_id", userID, "error", err)
+					continue
+				}
 			}
 
 		}

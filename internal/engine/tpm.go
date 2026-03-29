@@ -24,15 +24,18 @@ type EnergyPoint struct {
 	Zone      string    `json:"zone"` // Named energy zone
 }
 
-// TPM parameters (FIPS reference values).
+// TPM parameters — FIPS reference values from:
+// Ingre et al. (2014) "Validating and Extending the Three Process Model of
+// Alertness in Airline Operations", PLoS ONE 9(10), e108679.
+// R source: https://github.com/humanfactors/FIPS
 const (
 	// Process S – homeostatic sleep pressure
-	sLowerAsymptote = 2.4    // la: lower asymptote during wake
-	sDecayRate      = -0.0514 // d: decay rate during wake (per hour)
-	sBreakLevel     = 14.0   // bl: linear→exponential recovery breakpoint
-	sRecoveryLinear = 0.8    // rs: linear recovery rate (units/hr) during early sleep
-	sUpperAsymptote = 16.0   // ha: upper asymptote during sleep recovery
-	sRecoveryRate   = 0.4    // r: exponential recovery rate during late sleep
+	sLowerAsymptote = 2.4     // la: lower asymptote during wake
+	sDecayRate      = -0.0353 // d: decay rate during wake (per hour)
+	sBreakLevel     = 12.2    // bl: linear→exponential recovery breakpoint
+	sRecoveryLinear = 0.8     // g*(bl-ha): linear recovery rate (units/hr) during early sleep
+	sUpperAsymptote = 14.3    // ha: upper asymptote during sleep recovery
+	sRecoveryRate   = 0.3814  // |g|: exponential recovery rate; g = ln((ha-14)/(ha-S0))/8
 
 	// Process C – 24h circadian
 	cMean      = 0.0
@@ -40,16 +43,16 @@ const (
 	cAcrophase = 16.8 // hours after midnight
 
 	// Process U – 12h ultradian (post-lunch dip)
-	uMean      = 0.0
-	uAmplitude = 0.5
+	uMean       = -0.5
+	uAmplitude  = 0.5
 	uPhaseShift = 3.0 // hours relative to C acrophase
 
 	// Process W – sleep inertia
 	wCoefficient = -5.72
 	wDecayRate   = -1.51 // per hour (~27 min half-life)
 
-	// Initial S value for a well-rested person
-	sInitial = 15.0
+	// Initial S value for a well-rested person (after ~8h sleep)
+	sInitial = 7.96
 
 	// Sampling interval
 	sampleMinutes = 5
@@ -77,10 +80,10 @@ func PredictEnergy(sleepPeriods []SleepPeriod, predStart, predEnd time.Time) []E
 	}
 
 	// State variables
-	s := sInitial                 // homeostatic pressure
-	var lastWakeTime *time.Time   // when the person last woke up
+	s := sInitial               // homeostatic pressure
+	var lastWakeTime *time.Time // when the person last woke up
 	sleeping := false
-	sleepPhase2 := false          // true once S >= breakLevel during sleep
+	sleepPhase2 := false // true once S >= breakLevel during sleep
 	phase2Start := time.Time{}
 
 	// Determine initial sleep/wake state at simStart.

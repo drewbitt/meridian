@@ -2,10 +2,13 @@ package ingest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 )
+
+var errParseTime = errors.New("cannot parse time")
 
 // healthConnectExport represents the top-level structure of a Health Connect export.
 type healthConnectExport struct {
@@ -102,5 +105,5 @@ func parseHCTime(s string) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("cannot parse time: %s", s)
+	return time.Time{}, fmt.Errorf("%w: %s", errParseTime, s)
 }

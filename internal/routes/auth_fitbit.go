@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,6 +15,12 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"golang.org/x/oauth2"
+)
+
+var (
+	errMalformedState   = errors.New("malformed state")
+	errInvalidSig       = errors.New("invalid state signature")
+	errMalformedPayload = errors.New("malformed state payload")
 )
 
 func registerFitbitAuthRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
@@ -95,7 +102,7 @@ func fitbitConfig(app *pocketbase.PocketBase) *oauth2.Config {
 		ClientID:     settings.GetString("fitbit_client_id"),
 		ClientSecret: settings.GetString("fitbit_client_secret"),
 		Scopes:       []string{"sleep"},
-		Endpoint: oauth2.Endpoint{
+		Endpoint: oauth2.Endpoint{ //nolint:gosec // OAuth URLs, not credentials
 			AuthURL:  "https://www.fitbit.com/oauth2/authorize",
 			TokenURL: "https://api.fitbit.com/oauth2/token",
 		},
@@ -139,7 +146,7 @@ func verifyState(app *pocketbase.PocketBase, state string) (string, error) {
 		}
 	}
 	if lastColon <= 0 {
-		return "", fmt.Errorf("malformed state")
+		return "", errMalformedState
 	}
 	payload := state[:lastColon]
 	sig := state[lastColon+1:]
@@ -149,7 +156,7 @@ func verifyState(app *pocketbase.PocketBase, state string) (string, error) {
 	expected := hex.EncodeToString(mac.Sum(nil))
 
 	if !hmac.Equal([]byte(sig), []byte(expected)) {
-		return "", fmt.Errorf("invalid state signature")
+		return "", errInvalidSig
 	}
 
 	firstColon := -1
@@ -160,7 +167,7 @@ func verifyState(app *pocketbase.PocketBase, state string) (string, error) {
 		}
 	}
 	if firstColon <= 0 {
-		return "", fmt.Errorf("malformed state payload")
+		return "", errMalformedPayload
 	}
 
 	return payload[:firstColon], nil
