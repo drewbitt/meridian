@@ -1,0 +1,52 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - err113
+    - errorlint
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gosec
+    - bodyclose
+    - revive
+    - misspell
+    - gocritic
+    - sloglint
+    - modernize
+
+  settings:
+    sloglint:
+      no-mixed-args: true
+      kv-only: true
+    revive:
+      rules:
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-return
+        - name: exported
+        - name: var-naming
+    errcheck:
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Sprintf
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

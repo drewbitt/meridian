@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/drewbitt/circadian/engine"
-	"github.com/drewbitt/circadian/ingest"
+	"github.com/drewbitt/circadian/internal/engine"
+	"github.com/drewbitt/circadian/internal/ingest"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )

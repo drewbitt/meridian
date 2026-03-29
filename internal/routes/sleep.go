@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/drewbitt/circadian/templates"
+	"github.com/drewbitt/circadian/internal/templates"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -13,6 +13,11 @@ import (
 func registerSleepRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	// Manual sleep entry form.
 	se.Router.GET("/sleep", func(re *core.RequestEvent) error {
+		info, _ := re.RequestInfo()
+		if info.Auth == nil {
+			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/sleep")
+		}
+
 		var buf bytes.Buffer
 		templates.SleepEntry().Render(re.Request.Context(), &buf)
 		re.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -24,7 +29,7 @@ func registerSleepRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	se.Router.POST("/sleep", func(re *core.RequestEvent) error {
 		info, _ := re.RequestInfo()
 		if info.Auth == nil {
-			return re.UnauthorizedError("", nil)
+			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/sleep")
 		}
 
 		data := struct {

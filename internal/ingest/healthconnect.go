@@ -13,9 +13,9 @@ type healthConnectExport struct {
 }
 
 type healthConnectSleepSession struct {
-	StartTime string                     `json:"startTime"`
-	EndTime   string                     `json:"endTime"`
-	Stages    []healthConnectSleepStage  `json:"stages"`
+	StartTime string                    `json:"startTime"`
+	EndTime   string                    `json:"endTime"`
+	Stages    []healthConnectSleepStage `json:"stages"`
 }
 
 type healthConnectSleepStage struct {
@@ -26,19 +26,19 @@ type healthConnectSleepStage struct {
 
 // Health Connect sleep stage constants.
 const (
-	hcStageAwake        = 1
-	hcStageSleeping     = 2
-	hcStageOutOfBed     = 3
-	hcStageLight        = 4
-	hcStageDeep         = 5
-	hcStageREM          = 6
+	hcStageAwake    = 1
+	hcStageSleeping = 2
+	hcStageOutOfBed = 3
+	hcStageLight    = 4
+	hcStageDeep     = 5
+	hcStageREM      = 6
 )
 
 // ParseHealthConnect parses an Android Health Connect JSON export.
 func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 	var export healthConnectExport
 	if err := json.NewDecoder(r).Decode(&export); err != nil {
-		return nil, fmt.Errorf("decode health connect JSON: %w", err)
+		return nil, fmt.Errorf("%w: decode health connect JSON: %w", ErrParseFailed, err)
 	}
 
 	var records []SleepRecord

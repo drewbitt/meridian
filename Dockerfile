@@ -25,7 +25,7 @@ RUN templ generate
 RUN mkdir -p assets/dist && \
     tailwindcss -i assets/input.css -o assets/dist/styles.min.css --minify
 
-RUN CGO_ENABLED=0 go build -o /app .
+RUN CGO_ENABLED=0 go build -o /app ./cmd/circadian
 
 FROM gcr.io/distroless/static-debian12
 

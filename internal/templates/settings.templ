@@ -176,7 +176,7 @@ templ Login() {
 				<p class="text-gray-400 text-center text-sm mb-6">
 					Sign in to track your energy rhythms
 				</p>
-				<form method="POST" action="/api/collections/users/auth-with-password" class="space-y-4">
+				<form id="login-form" class="space-y-4">
 					<div>
 						<input
 							type="email"
@@ -203,12 +203,47 @@ templ Login() {
 					>
 						Sign In
 					</button>
+					<div id="login-error" class="hidden text-sm text-red-400 text-center"></div>
 				</form>
 				<p class="mt-4 text-center text-xs text-gray-500">
 					Create an account via the <a href="/_/" class="text-indigo-400 hover:text-indigo-300">admin panel</a>
 				</p>
 			</div>
 		</div>
+		<script>
+			document.getElementById('login-form').addEventListener('submit', async (e) => {
+				e.preventDefault();
+				const form = e.target;
+				const errEl = document.getElementById('login-error');
+				errEl.classList.add('hidden');
+				try {
+					const res = await fetch('/api/collections/users/auth-with-password', {
+						method: 'POST',
+						headers: {'Content-Type': 'application/json'},
+						body: JSON.stringify({
+							identity: form.identity.value,
+							password: form.password.value,
+						}),
+					});
+					if (!res.ok) {
+						const data = await res.json();
+						errEl.textContent = data.message || 'Login failed';
+						errEl.classList.remove('hidden');
+						return;
+					}
+					const params = new URLSearchParams(window.location.search);
+					const redirect = params.get('redirect') || '/';
+					if (redirect.startsWith('/') && !redirect.startsWith('//')) {
+						window.location.href = redirect;
+					} else {
+						window.location.href = '/';
+					}
+				} catch (err) {
+					errEl.textContent = 'Network error';
+					errEl.classList.remove('hidden');
+				}
+			});
+		</script>
 	}
 }
 

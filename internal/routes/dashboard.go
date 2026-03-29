@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/drewbitt/circadian/engine"
-	"github.com/drewbitt/circadian/templates"
+	"github.com/drewbitt/circadian/internal/engine"
+	"github.com/drewbitt/circadian/internal/templates"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/starfederation/datastar-go/datastar"
@@ -19,7 +19,7 @@ func registerDashboardRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	se.Router.GET("/", func(re *core.RequestEvent) error {
 		info, _ := re.RequestInfo()
 		if info.Auth == nil {
-			return re.Redirect(http.StatusTemporaryRedirect, "/login")
+			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/")
 		}
 
 		userID := info.Auth.Id
@@ -175,7 +175,7 @@ func computeSchedule(app *pocketbase.PocketBase, userID string) (engine.Schedule
 
 	debt := engine.CalculateSleepDebt(engineRecords, sleepNeed, time.Now())
 
-	wakeTime := time.Now().Truncate(24*time.Hour).Add(7*time.Hour)
+	wakeTime := time.Now().Truncate(24 * time.Hour).Add(7 * time.Hour)
 	if len(periods) > 0 {
 		latest := periods[0]
 		for _, sp := range periods {

@@ -10,10 +10,10 @@ import (
 
 // Gadgetbridge activity type constants.
 const (
-	gbActivitySleep     = 2
-	gbActivityDeepSleep = 4
+	gbActivitySleep      = 2
+	gbActivityDeepSleep  = 4
 	gbActivityLightSleep = 5
-	gbActivityREMSleep  = 6
+	gbActivityREMSleep   = 6
 	// Activity intensity threshold for detecting sleep from raw data.
 	gbSleepIntensityMax = 50
 )
@@ -22,7 +22,7 @@ const (
 func ParseGadgetbridge(dbPath string) ([]SleepRecord, error) {
 	db, err := sql.Open("sqlite", dbPath+"?mode=ro")
 	if err != nil {
-		return nil, fmt.Errorf("open gadgetbridge db: %w", err)
+		return nil, fmt.Errorf("%w: open gadgetbridge db: %w", ErrInvalidFile, err)
 	}
 	defer db.Close()
 

@@ -2,15 +2,19 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "go build -o ./tmp/main ."
+  cmd = "go build -o ./tmp/main ./cmd/circadian"
+  bin = "./tmp/main"
   entrypoint = ["./tmp/main", "serve"]
   delay = 1000
   exclude_dir = ["assets", "tmp", "pb_data", "vendor", "testdata"]
-  exclude_regex = ["_templ\\.go$", "_test\\.go$"]
+  exclude_regex = ["_test\\.go$"]
   include_ext = ["go", "templ"]
-  kill_delay = "0s"
+  kill_delay = "2s"
   send_interrupt = true
   stop_on_error = false
+
+[misc]
+  clean_on_exit = true
 
 [log]
   time = false

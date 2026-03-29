@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"net/http"
 
-	"github.com/drewbitt/circadian/templates"
+	"github.com/drewbitt/circadian/internal/templates"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -13,7 +13,7 @@ func registerSettingsRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	se.Router.GET("/settings", func(re *core.RequestEvent) error {
 		info, _ := re.RequestInfo()
 		if info.Auth == nil {
-			return re.UnauthorizedError("", nil)
+			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/settings")
 		}
 
 		settings, _ := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": info.Auth.Id})
@@ -27,7 +27,7 @@ func registerSettingsRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	se.Router.POST("/settings", func(re *core.RequestEvent) error {
 		info, _ := re.RequestInfo()
 		if info.Auth == nil {
-			return re.UnauthorizedError("", nil)
+			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/settings")
 		}
 
 		data := struct {

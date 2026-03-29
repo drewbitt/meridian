@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/drewbitt/circadian/ingest"
+	"github.com/drewbitt/circadian/internal/ingest"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"golang.org/x/oauth2"
@@ -19,7 +19,7 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 	se.Router.GET("/auth/fitbit", func(re *core.RequestEvent) error {
 		info, _ := re.RequestInfo()
 		if info.Auth == nil {
-			return re.UnauthorizedError("", nil)
+			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/settings")
 		}
 
 		nonce := generateNonce()

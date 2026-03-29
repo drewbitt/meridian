@@ -2,11 +2,11 @@ package services
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/drewbitt/circadian/engine"
+	"github.com/drewbitt/circadian/internal/engine"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -87,7 +87,7 @@ func RunMorningJob(app *pocketbase.PocketBase, userID string) error {
 	schedule := engine.ClassifyZones(points, wakeTime)
 
 	if err := storeSchedule(app, userID, schedule); err != nil {
-		log.Printf("Failed to store schedule for user %s: %v", userID, err)
+		slog.Error("failed to store schedule", "user_id", userID, "error", err)
 	}
 
 	if cfg.NotificationsEnabled && cfg.NtfyTopic != "" {
@@ -104,7 +104,7 @@ func RunMorningJob(app *pocketbase.PocketBase, userID string) error {
 			0,
 			[]string{"sunny", "battery"},
 		)); err != nil {
-			log.Printf("Failed morning notification for user %s: %v", userID, err)
+			slog.Error("failed morning notification", "user_id", userID, "error", err)
 		}
 
 		dispatchScheduledNotifications(cfg, schedule)
@@ -191,7 +191,7 @@ func dispatchScheduledNotifications(cfg SchedulerConfig, schedule engine.Schedul
 			continue
 		}
 		if err := SendNotification(n); err != nil {
-			log.Printf("Failed scheduled notification %q: %v", n.Title, err)
+			slog.Error("failed scheduled notification", "title", n.Title, "error", err)
 		}
 	}
 }
@@ -200,7 +200,7 @@ func (c SchedulerConfig) dashboardURL() string {
 	if c.SiteURL == "" {
 		return ""
 	}
-	return strings.TrimRight(c.SiteURL, "/") + "/dashboard"
+	return strings.TrimRight(c.SiteURL, "/") + "/"
 }
 
 func (c SchedulerConfig) dashboardAction() []Action {

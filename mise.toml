@@ -43,7 +43,7 @@ outputs = ["assets/dist/styles.min.css"]
 [tasks.build]
 description = "Build production binary"
 depends = ["generate"]
-run = "go build -o circadian ."
+run = "go build -o circadian ./cmd/circadian"
 sources = ["**/*.go", "go.mod", "go.sum"]
 outputs = ["circadian"]
 
@@ -51,15 +51,15 @@ outputs = ["circadian"]
 
 [tasks.test]
 description = "Run all tests"
-run = "go test ./..."
+run = "go test -race ./..."
 
 [tasks."test:verbose"]
 description = "Run all tests with verbose output"
-run = "go test -v ./..."
+run = "go test -race -v ./..."
 
 [tasks."test:engine"]
 description = "Run engine tests only"
-run = "go test -v ./engine/"
+run = "go test -race -v ./internal/engine/"
 
 # ── Lint & format ─────────────────────────────────────────────
 

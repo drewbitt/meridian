@@ -49,7 +49,7 @@ func ParseAppleHealthZip(zipPath string) ([]SleepRecord, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("export.xml not found in zip")
+	return nil, fmt.Errorf("%w: export.xml not found in zip", ErrInvalidFile)
 }
 
 // ParseAppleHealthXML reads an Apple Health export.xml directly.
@@ -76,13 +76,13 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 
 	// Group sleep samples by night (date of sleep start).
 	type nightData struct {
-		sleepStart  time.Time
-		sleepEnd    time.Time
-		deepMins    int
-		remMins     int
-		lightMins   int
-		awakeMins   int
-		totalMins   int
+		sleepStart time.Time
+		sleepEnd   time.Time
+		deepMins   int
+		remMins    int
+		lightMins  int
+		awakeMins  int
+		totalMins  int
 	}
 	nights := make(map[string]*nightData) // keyed by date string
 
