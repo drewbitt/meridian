@@ -12,4 +12,5 @@ func main() {
 	if err != nil || resp.StatusCode != http.StatusOK {
 		os.Exit(1)
 	}
+	resp.Body.Close()
 }

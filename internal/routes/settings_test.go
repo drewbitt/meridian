@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"fmt"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -40,9 +39,9 @@ func tokenFor(t testing.TB, app *tests.TestApp, email string) string {
 	return tok
 }
 
-func hcMultipart(t testing.TB) (*bytes.Buffer, string) {
+func hcMultipart(t testing.TB) (body *bytes.Buffer, contentType string) {
 	t.Helper()
-	json := `{"sleepSessions":[{
+	payload := `{"sleepSessions":[{
 		"startTime":"2024-01-15T23:00:00Z","endTime":"2024-01-16T07:00:00Z",
 		"stages":[
 			{"startTime":"2024-01-15T23:00:00Z","endTime":"2024-01-16T01:00:00Z","stage":4},
@@ -54,12 +53,29 @@ func hcMultipart(t testing.TB) (*bytes.Buffer, string) {
 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-	fw, _ := w.CreateFormField("source")
-	fmt.Fprint(fw, "healthconnect")
-	fw, _ = w.CreateFormFile("file", "export.json")
-	fmt.Fprint(fw, json)
-	w.Close()
+	writeField(t, w, "source", "healthconnect")
+	fw, err := w.CreateFormFile("file", "export.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return &buf, w.FormDataContentType()
+}
+
+func writeField(t testing.TB, w *multipart.Writer, name, value string) {
+	t.Helper()
+	fw, err := w.CreateFormField(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write([]byte(value)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func expectLocation(t testing.TB, res *http.Response, substr string) {
@@ -70,8 +86,8 @@ func expectLocation(t testing.TB, res *http.Response, substr string) {
 	}
 }
 
-// TestSettingsImport_Redirect would have FAILED before the fix: the form posted
-// to /api/import which returned 200+JSON. Now /settings/import returns 303.
+// TestSettingsImport_Redirect verifies that the HTML import endpoint redirects
+// back to settings with an imported count.
 func TestSettingsImport_Redirect(t *testing.T) {
 	body, ct := hcMultipart(t)
 	headers := map[string]string{"Content-Type": ct}
@@ -82,12 +98,12 @@ func TestSettingsImport_Redirect(t *testing.T) {
 		URL:            "/settings/import",
 		Body:           body,
 		ExpectedStatus: 303,
-		TestAppFactory: func(t testing.TB) *tests.TestApp { return setupApp(t) },
+		TestAppFactory: setupApp,
 		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
 			registerSettingsRoutes(e, app)
 			headers["Authorization"] = tokenFor(t, app, testUserEmail)
 		},
-		AfterTestFunc: func(t testing.TB, app *tests.TestApp, res *http.Response) {
+		AfterTestFunc: func(_ testing.TB, _ *tests.TestApp, res *http.Response) {
 			expectLocation(t, res, "/settings?imported=1")
 		},
 		Headers: headers,
@@ -97,9 +113,10 @@ func TestSettingsImport_Redirect(t *testing.T) {
 func TestSettingsImport_NoFile(t *testing.T) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-	fw, _ := w.CreateFormField("source")
-	fmt.Fprint(fw, "healthconnect")
-	w.Close()
+	writeField(t, w, "source", "healthconnect")
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	headers := map[string]string{"Content-Type": w.FormDataContentType()}
 
@@ -109,12 +126,12 @@ func TestSettingsImport_NoFile(t *testing.T) {
 		URL:            "/settings/import",
 		Body:           &buf,
 		ExpectedStatus: 303,
-		TestAppFactory: func(t testing.TB) *tests.TestApp { return setupApp(t) },
+		TestAppFactory: setupApp,
 		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
 			registerSettingsRoutes(e, app)
 			headers["Authorization"] = tokenFor(t, app, testUserEmail)
 		},
-		AfterTestFunc: func(t testing.TB, app *tests.TestApp, res *http.Response) {
+		AfterTestFunc: func(_ testing.TB, _ *tests.TestApp, res *http.Response) {
 			expectLocation(t, res, "/settings?import_error=")
 		},
 		Headers: headers,
@@ -130,11 +147,11 @@ func TestSettingsImport_Unauthenticated(t *testing.T) {
 		URL:            "/settings/import",
 		Body:           body,
 		ExpectedStatus: 307,
-		TestAppFactory: func(t testing.TB) *tests.TestApp { return setupApp(t) },
-		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
-			registerSettingsRoutes(e, app)
+		TestAppFactory: setupApp,
+		BeforeTestFunc: func(_ testing.TB, _ *tests.TestApp, e *core.ServeEvent) {
+			registerSettingsRoutes(e, setupApp(t))
 		},
-		AfterTestFunc: func(t testing.TB, app *tests.TestApp, res *http.Response) {
+		AfterTestFunc: func(_ testing.TB, _ *tests.TestApp, res *http.Response) {
 			expectLocation(t, res, "/login")
 		},
 		Headers: map[string]string{"Content-Type": ct},
@@ -153,7 +170,7 @@ func TestAPIImport_ReturnsJSON(t *testing.T) {
 		Body:            body,
 		ExpectedStatus:  200,
 		ExpectedContent: []string{`"imported"`, `"total"`},
-		TestAppFactory:  func(t testing.TB) *tests.TestApp { return setupApp(t) },
+		TestAppFactory:  setupApp,
 		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
 			registerAPIRoutes(e, app)
 			headers["Authorization"] = tokenFor(t, app, testUserEmail)

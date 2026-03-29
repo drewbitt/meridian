@@ -77,8 +77,6 @@ func main() {
 	}
 }
 
-
-
 func runMorningJobForAllUsers(app *pocketbase.PocketBase) {
 	users, err := app.FindAllRecords("users")
 	if err != nil {
