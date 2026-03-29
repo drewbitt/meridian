@@ -42,12 +42,14 @@ type fitbitStageSummary struct {
 	Minutes int `json:"minutes"`
 }
 
+var fitbitBaseURL = "https://api.fitbit.com/1.2"
+
 // FetchFitbitSleep retrieves sleep data for a given date from the Fitbit API.
 func FetchFitbitSleep(ctx context.Context, token *oauth2.Token, date time.Time) ([]SleepRecord, error) {
 	client := FitbitOAuthConfig.Client(ctx, token)
 
 	dateStr := date.Format("2006-01-02")
-	url := fmt.Sprintf("https://api.fitbit.com/1.2/user/-/sleep/date/%s.json", dateStr)
+	url := fmt.Sprintf("%s/user/-/sleep/date/%s.json", fitbitBaseURL, dateStr)
 
 	resp, err := client.Get(url)
 	if err != nil {

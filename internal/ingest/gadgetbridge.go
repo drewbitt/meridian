@@ -132,6 +132,15 @@ func parseGBActivitySamples(db *sql.DB) ([]SleepRecord, error) {
 	periodEnd := samples[0].timestamp
 	var deepMins, remMins, lightMins int
 
+	switch samples[0].kind {
+	case gbActivityDeepSleep:
+		deepMins++
+	case gbActivityREMSleep:
+		remMins++
+	case gbActivityLightSleep, gbActivitySleep:
+		lightMins++
+	}
+
 	flush := func() {
 		if periodEnd-periodStart < 30*60 { // Ignore periods < 30 min
 			return

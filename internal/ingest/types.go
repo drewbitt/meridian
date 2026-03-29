@@ -30,3 +30,11 @@ func dateOnly(t time.Time) time.Time {
 	y, m, d := t.Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
 }
+
+func sleepNightDate(t time.Time) time.Time {
+	d := dateOnly(t)
+	if t.Hour() < 12 {
+		d = d.AddDate(0, 0, -1)
+	}
+	return d
+}

@@ -53,7 +53,7 @@ func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 		}
 
 		rec := SleepRecord{
-			Date:            dateOnly(start),
+			Date:            sleepNightDate(start),
 			SleepStart:      start,
 			SleepEnd:        end,
 			Source:          SourceHealthConnect,
