@@ -9,27 +9,26 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 	@Layout("Settings") {
 		<div class="mx-auto max-w-lg space-y-6">
 			if saved {
-				<div id="toast" class="fixed bottom-6 right-6 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-out">
+				<div id="toast" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
 					Settings saved
 				</div>
 			}
 			if importedCount != "" {
-				<div id="toast-import" class="fixed bottom-6 right-6 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-out">
+				<div id="toast-import" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
 					Imported { importedCount } sleep records
 				</div>
 			}
 			if importError != "" {
-				<div id="toast-error" class="fixed bottom-6 right-6 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-out">
+				<div id="toast-error" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
 					{ importError }
 				</div>
 			}
 
-			<!-- General Settings -->
-			<div class="rounded-xl bg-gray-900 border border-gray-800 p-6">
-				<h2 class="text-lg font-semibold text-gray-100 mb-6">Settings</h2>
-				<form id="settings-form" method="POST" action="/settings" class="space-y-6">
+			<div>
+				<h2 class="font-display text-lg text-gray-100 mb-6">Settings</h2>
+				<form id="settings-form" method="POST" action="/settings" class="space-y-5">
 					<div>
-						<label for="sleep_need_hours" class="block text-sm font-medium text-gray-300 mb-2">
+						<label for="sleep_need_hours" class="block text-sm font-medium text-gray-400 mb-1.5">
 							Sleep Need (hours)
 						</label>
 						<input
@@ -40,12 +39,12 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							min="4"
 							max="12"
 							value={ sleepNeedValue(settings) }
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 
 					<div>
-						<label for="ntfy_topic" class="block text-sm font-medium text-gray-300 mb-2">
+						<label for="ntfy_topic" class="block text-sm font-medium text-gray-400 mb-1.5">
 							ntfy Topic
 						</label>
 						<input
@@ -54,13 +53,13 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							name="ntfy_topic"
 							placeholder="my-meridian-alerts"
 							value={ getSettingStr(settings, "ntfy_topic") }
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
-						<p class="mt-1 text-xs text-gray-500">Used for push notifications via ntfy.sh</p>
+						<p class="mt-1 text-xs text-gray-600">Used for push notifications via ntfy.sh</p>
 					</div>
 
 					<div>
-						<label for="ntfy_server" class="block text-sm font-medium text-gray-300 mb-2">
+						<label for="ntfy_server" class="block text-sm font-medium text-gray-400 mb-1.5">
 							ntfy Server
 						</label>
 						<input
@@ -69,12 +68,12 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							name="ntfy_server"
 							placeholder="https://ntfy.sh"
 							value={ getSettingStr(settings, "ntfy_server") }
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 
 					<div>
-						<label for="ntfy_access_token" class="block text-sm font-medium text-gray-300 mb-2">
+						<label for="ntfy_access_token" class="block text-sm font-medium text-gray-400 mb-1.5">
 							ntfy Access Token
 						</label>
 						<input
@@ -83,13 +82,13 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							name="ntfy_access_token"
 							placeholder="tk_abc123..."
 							value={ getSettingStr(settings, "ntfy_access_token") }
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
-						<p class="mt-1 text-xs text-gray-500">Generate with <code class="text-gray-400">ntfy token add &lt;user&gt;</code> — <a href="https://docs.ntfy.sh/publish/#access-tokens" target="_blank" class="text-indigo-400 hover:text-indigo-300">docs</a></p>
+						<p class="mt-1 text-xs text-gray-600">Generate with <code class="text-gray-500 font-mono">ntfy token add &lt;user&gt;</code> &mdash; <a href="https://docs.ntfy.sh/publish/#access-tokens" target="_blank" class="text-dusk hover:text-dawn transition-colors">docs</a></p>
 					</div>
 
 					<div>
-						<label for="site_url" class="block text-sm font-medium text-gray-300 mb-2">
+						<label for="site_url" class="block text-sm font-medium text-gray-400 mb-1.5">
 							Site URL
 						</label>
 						<input
@@ -98,13 +97,13 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							name="site_url"
 							placeholder="https://meridian.example.com"
 							value={ getSettingStr(settings, "site_url") }
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
-						<p class="mt-1 text-xs text-gray-500">Enables tap-to-open in notifications</p>
+						<p class="mt-1 text-xs text-gray-600">Enables tap-to-open in notifications</p>
 					</div>
 
 					<div>
-						<label for="fitbit_client_id" class="block text-sm font-medium text-gray-300 mb-2">
+						<label for="fitbit_client_id" class="block text-sm font-medium text-gray-400 mb-1.5">
 							Fitbit Client ID
 						</label>
 						<input
@@ -113,12 +112,12 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							name="fitbit_client_id"
 							placeholder="Fitbit OAuth client ID"
 							value={ getSettingStr(settings, "fitbit_client_id") }
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 
 					<div>
-						<label for="fitbit_client_secret" class="block text-sm font-medium text-gray-300 mb-2">
+						<label for="fitbit_client_secret" class="block text-sm font-medium text-gray-400 mb-1.5">
 							Fitbit Client Secret
 						</label>
 						<input
@@ -127,7 +126,7 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							name="fitbit_client_secret"
 							placeholder="Fitbit OAuth client secret"
 							value={ getSettingStr(settings, "fitbit_client_secret") }
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 
@@ -137,47 +136,44 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							id="notifications_enabled"
 							name="notifications_enabled"
 							checked?={ getSettingBool(settings, "notifications_enabled") }
-							class="h-4 w-4 rounded border-gray-700 bg-gray-800 text-indigo-600 focus:ring-indigo-500"
+							class="h-4 w-4 rounded border-night-border bg-night-deep text-dusk focus:ring-dusk focus:ring-offset-night-card"
 						/>
-						<label for="notifications_enabled" class="text-sm text-gray-300">
+						<label for="notifications_enabled" class="text-sm text-gray-400">
 							Enable notifications
 						</label>
 					</div>
 
 					<button
 						type="submit"
-						class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+						class="btn-primary"
 					>
 						Save Settings
 					</button>
 				</form>
 			</div>
 
-			<!-- Wearable Connections -->
-			<div class="rounded-xl bg-gray-900 border border-gray-800 p-6">
-				<h2 class="text-lg font-semibold text-gray-100 mb-4">Data Sources</h2>
+			<div class="section-ruled">
+				<h2 class="font-display text-lg text-gray-100 mb-4">Data Sources</h2>
 				<div class="space-y-4">
-					<!-- Fitbit -->
 					<div class="flex items-center justify-between">
 						<div>
-							<div class="text-sm font-medium text-gray-200">Fitbit</div>
-							<div class="text-xs text-gray-500">Auto-sync sleep data via OAuth</div>
+							<div class="text-sm font-medium text-gray-300">Fitbit</div>
+							<div class="text-xs text-gray-600">Auto-sync sleep data via OAuth</div>
 						</div>
 						if hasFitbitToken(settings) {
-							<span class="text-xs font-medium text-green-400 bg-green-400/10 px-2 py-1 rounded-full">Connected</span>
+							<span class="text-xs font-mono font-medium text-noon bg-noon-muted px-2 py-1 rounded-md">Connected</span>
 						} else {
 							<a
 								href="/auth/fitbit"
-								class="rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-700"
+								class="btn-secondary"
 							>
 								Connect
 							</a>
 						}
 					</div>
 
-					<!-- File Imports -->
-					<div class="border-t border-gray-800 pt-4">
-						<div class="text-sm font-medium text-gray-200 mb-3">File Import</div>
+					<div class="border-t border-night-border pt-4">
+						<div class="text-sm font-medium text-gray-300 mb-3">File Import</div>
 						<form
 							action="/settings/import"
 							method="POST"
@@ -186,7 +182,7 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 						>
 							<select
 								name="source"
-								class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-gray-100 focus:border-indigo-500 focus:ring-indigo-500"
+								class="input-field"
 							>
 								<option value="healthconnect">Android Health Connect (JSON)</option>
 								<option value="applehealth">Apple Health (ZIP/XML)</option>
@@ -196,11 +192,11 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 								type="file"
 								name="file"
 								accept=".json,.xml,.zip,.sqlite,.db"
-								class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-gray-800 file:text-sm file:font-medium file:text-gray-300 hover:file:bg-gray-700"
+								class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-night-deep file:text-sm file:font-medium file:text-gray-400 hover:file:bg-night-card file:transition-colors"
 							/>
 							<button
 								type="submit"
-								class="rounded-lg bg-gray-800 border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700"
+								class="btn-secondary"
 							>
 								Import
 							</button>

@@ -3,9 +3,9 @@ package templates
 templ Login(registrationEnabled bool) {
 	@Layout("Login") {
 		<div class="flex min-h-[60vh] items-center justify-center">
-			<div class="w-full max-w-sm rounded-xl bg-gray-900 border border-gray-800 p-8">
-				<h1 class="text-2xl font-bold text-gray-100 text-center mb-6">Meridian</h1>
-				<p class="text-gray-400 text-center text-sm mb-6">
+			<div class="w-full max-w-sm card !p-8">
+				<h1 class="font-display text-3xl text-gray-100 text-center mb-2">Meridian</h1>
+				<p class="text-gray-500 text-center text-sm mb-8">
 					Sign in to see your day more clearly
 				</p>
 				<form id="login-form" class="space-y-4">
@@ -16,7 +16,7 @@ templ Login(registrationEnabled bool) {
 							placeholder="Email"
 							autocomplete="email"
 							required
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 					<div>
@@ -26,21 +26,21 @@ templ Login(registrationEnabled bool) {
 							placeholder="Password"
 							autocomplete="current-password"
 							required
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 					<button
 						type="submit"
-						class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
+						class="btn-primary"
 					>
 						Sign In
 					</button>
-					<div id="login-error" class="hidden text-sm text-red-400 text-center"></div>
-					<div id="login-success" class="hidden text-sm text-green-400 text-center"></div>
+					<div id="login-error" class="hidden text-sm text-dawn text-center"></div>
+					<div id="login-success" class="hidden text-sm text-noon text-center"></div>
 				</form>
 				if registrationEnabled {
-					<p class="mt-4 text-center text-xs text-gray-500">
-						Don't have an account? <a href="/register" class="text-indigo-400 hover:text-indigo-300">Create one</a>
+					<p class="mt-6 text-center text-xs text-gray-600">
+						Don't have an account? <a href="/register" class="text-dusk hover:text-dawn transition-colors">Create one</a>
 					</p>
 				}
 			</div>
@@ -49,7 +49,7 @@ templ Login(registrationEnabled bool) {
 			const params = new URLSearchParams(window.location.search);
 			if (params.get('registered') === '1') {
 				const el = document.getElementById('login-success');
-				el.textContent = 'Account created! Please sign in.';
+				el.textContent = 'Account created. Please sign in.';
 				el.classList.remove('hidden');
 			}
 			document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -87,9 +87,9 @@ templ Login(registrationEnabled bool) {
 templ Register(errMsg string) {
 	@Layout("Register") {
 		<div class="flex min-h-[60vh] items-center justify-center">
-			<div class="w-full max-w-sm rounded-xl bg-gray-900 border border-gray-800 p-8">
-				<h1 class="text-2xl font-bold text-gray-100 text-center mb-6">Create Account</h1>
-				<p class="text-gray-400 text-center text-sm mb-6">
+			<div class="w-full max-w-sm card !p-8">
+				<h1 class="font-display text-3xl text-gray-100 text-center mb-2">Create Account</h1>
+				<p class="text-gray-500 text-center text-sm mb-8">
 					Sign up to start tracking your energy
 				</p>
 				<form method="POST" action="/register" class="space-y-4">
@@ -100,7 +100,7 @@ templ Register(errMsg string) {
 							placeholder="Email"
 							autocomplete="email"
 							required
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 					<div>
@@ -111,7 +111,7 @@ templ Register(errMsg string) {
 							autocomplete="new-password"
 							required
 							minlength="8"
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 					<div>
@@ -122,21 +122,21 @@ templ Register(errMsg string) {
 							autocomplete="new-password"
 							required
 							minlength="8"
-							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
+							class="input-field"
 						/>
 					</div>
 					if errMsg != "" {
-						<p class="text-sm text-red-400 text-center">{ errMsg }</p>
+						<p class="text-sm text-dawn text-center">{ errMsg }</p>
 					}
 					<button
 						type="submit"
-						class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
+						class="btn-primary"
 					>
 						Create Account
 					</button>
 				</form>
-				<p class="mt-4 text-center text-xs text-gray-500">
-					Already have an account? <a href="/login" class="text-indigo-400 hover:text-indigo-300">Sign in</a>
+				<p class="mt-6 text-center text-xs text-gray-600">
+					Already have an account? <a href="/login" class="text-dusk hover:text-dawn transition-colors">Sign in</a>
 				</p>
 			</div>
 		</div>

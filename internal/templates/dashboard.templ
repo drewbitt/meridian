@@ -5,41 +5,43 @@ import (
 	"github.com/drewbitt/meridian/internal/engine"
 )
 
+
 templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 	@Layout("Dashboard") {
 		<div
-			data-on-load="$$get('/sse/dashboard')"
-			class="space-y-6"
+			data-init="@get('/sse/dashboard')"
+			class="space-y-8"
 		>
-			<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-				<!-- Sleep Debt Card -->
+			<div class="grid grid-cols-1 gap-8 lg:grid-cols-3 items-start">
 				<div class="lg:col-span-1">
 					@DebtCard(debt)
 				</div>
 
-				<!-- Energy Curve Chart -->
 				<div class="lg:col-span-2">
-					<div class="rounded-xl bg-gray-900 border border-gray-800 p-6">
-						<h2 class="text-lg font-semibold text-gray-100 mb-4">Energy Curve</h2>
-						<div class="relative h-64">
+					<div>
+						<h2 class="font-display text-lg text-gray-100 mb-4">Energy Curve</h2>
+						<div class="relative h-64 surface">
 							<canvas id="energy-chart"></canvas>
 						</div>
 					</div>
 				</div>
 			</div>
 
-			<!-- Today's Schedule -->
 			@TodaySchedule(schedule)
 
-			<!-- Key Times -->
 			if !schedule.WakeTime.IsZero() {
-				<div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-					@TimeCard("Best Focus", schedule.BestFocusStart.Format("3:04pm") + " - " + schedule.BestFocusEnd.Format("3:04pm"), "text-green-400")
-					@TimeCard("Caffeine Cutoff", schedule.CaffeineCutoff.Format("3:04pm"), "text-yellow-400")
-					if !schedule.OptimalNapStart.IsZero() {
-						@TimeCard("Nap Window", schedule.OptimalNapStart.Format("3:04pm") + " - " + schedule.OptimalNapEnd.Format("3:04pm"), "text-blue-400")
-					}
-					@TimeCard("Melatonin Window", schedule.MelatoninWindow.Format("3:04pm"), "text-purple-400")
+				<div>
+					<h2 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-3">Key Times</h2>
+					<div class="grid grid-cols-2 gap-px bg-night-border rounded-lg overflow-hidden sm:grid-cols-4">
+						if !schedule.BestFocusStart.IsZero() {
+							@TimeCard("Best Focus", schedule.BestFocusStart.Format("3:04pm")+" - "+schedule.BestFocusEnd.Format("3:04pm"), "noon")
+						}
+						@TimeCard("Caffeine Cutoff", schedule.CaffeineCutoff.Format("3:04pm"), "ember")
+						if !schedule.OptimalNapStart.IsZero() {
+							@TimeCard("Nap Window", schedule.OptimalNapStart.Format("3:04pm")+" - "+schedule.OptimalNapEnd.Format("3:04pm"), "horizon")
+						}
+						@TimeCard("Melatonin Window", schedule.MelatoninWindow.Format("3:04pm"), "twilight")
+					</div>
 				</div>
 			}
 		</div>
@@ -59,25 +61,22 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 				const zones = points.map(p => p.zone);
 
 				const zoneColors = {
-					'sleep_inertia': 'rgba(249, 115, 22, 0.3)',
-					'morning_peak': 'rgba(34, 197, 94, 0.3)',
-					'afternoon_dip': 'rgba(234, 179, 8, 0.3)',
-					'evening_peak': 'rgba(34, 197, 94, 0.3)',
-					'wind_down': 'rgba(168, 85, 247, 0.3)',
-					'melatonin_window': 'rgba(59, 130, 246, 0.3)',
-					'normal': 'rgba(156, 163, 175, 0.1)',
-					'sleep': 'rgba(30, 41, 59, 0.5)',
+					'sleep_inertia': 'rgba(251, 146, 60, 0.25)',
+					'morning_peak': 'rgba(251, 191, 36, 0.25)',
+					'afternoon_dip': 'rgba(244, 165, 184, 0.20)',
+					'evening_peak': 'rgba(251, 191, 36, 0.25)',
+					'wind_down': 'rgba(167, 139, 250, 0.25)',
+					'melatonin_window': 'rgba(129, 140, 248, 0.25)',
+					'normal': 'rgba(30, 39, 68, 0.4)',
+					'sleep': 'rgba(6, 9, 16, 0.6)',
 				};
-				const bgColors = zones.map(z => zoneColors[z] || 'rgba(156, 163, 175, 0.1)');
-				const borderColors = zones.map(z => {
-					return zoneColors[z] ? zoneColors[z].replace('0.3', '1') : 'rgba(156, 163, 175, 0.5)';
-				});
+				const bgColors = zones.map(z => zoneColors[z] || 'rgba(30, 39, 68, 0.4)');
 
 				if (window.energyChart) {
 					window.energyChart.data.labels = labels;
 					window.energyChart.data.datasets[0].data = data;
 					window.energyChart.data.datasets[0].backgroundColor = bgColors;
-					window.energyChart.data.datasets[0].borderColor = 'rgb(129, 140, 248)';
+					window.energyChart.data.datasets[0].borderColor = 'rgba(129, 140, 248, 0.7)';
 					window.energyChart.update('none');
 					return;
 				}
@@ -89,11 +88,12 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 						datasets: [{
 							label: 'Alertness',
 							data: data,
-							borderColor: 'rgb(129, 140, 248)',
+							borderColor: 'rgba(129, 140, 248, 0.7)',
 							backgroundColor: bgColors,
 							fill: true,
-							tension: 0.3,
+							tension: 0.4,
 							pointRadius: 0,
+							borderWidth: 2,
 						}]
 					},
 					options: {
@@ -101,13 +101,15 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 						maintainAspectRatio: false,
 						scales: {
 							x: {
-								ticks: { color: '#9ca3af', maxTicksLimit: 12 },
-								grid: { color: 'rgba(75, 85, 99, 0.3)' },
+								ticks: { color: '#4b5563', maxTicksLimit: 12, font: { family: "'DM Sans', sans-serif", size: 11 } },
+								grid: { color: 'rgba(30, 39, 68, 0.6)' },
+								border: { color: 'rgba(30, 39, 68, 0.6)' },
 							},
 							y: {
-								ticks: { color: '#9ca3af' },
-								grid: { color: 'rgba(75, 85, 99, 0.3)' },
-								title: { display: true, text: 'Alertness', color: '#9ca3af' },
+								ticks: { color: '#4b5563', font: { family: "'DM Sans', sans-serif", size: 11 } },
+								grid: { color: 'rgba(30, 39, 68, 0.6)' },
+								border: { color: 'rgba(30, 39, 68, 0.6)' },
+								title: { display: true, text: 'Alertness', color: '#4b5563', font: { family: "'DM Sans', sans-serif" } },
 							},
 						},
 						plugins: {
@@ -115,37 +117,32 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 						},
 					},
 				});
-
-				// Draw current time marker.
-				const now = new Date();
-				const nowLabel = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-				// Find nearest label index for "now" marker (simple approach).
 			};
 		</script>
 	}
 }
 
 templ DebtCard(debt engine.SleepDebt) {
-	<div id="debt-card" class="rounded-xl bg-gray-900 border border-gray-800 p-6">
-		<h2 class="text-sm font-medium text-gray-400 mb-2">Sleep Debt</h2>
-		<div class={ "text-4xl font-bold", debtColor(debt.Category) }>
+	<div id="debt-card" class="hero-stat">
+		<div class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-4">Sleep Debt</div>
+		<div class={ "font-display text-6xl leading-none", debtColor(debt.Category) }>
 			{ fmt.Sprintf("%.1fh", debt.Hours) }
 		</div>
-		<div class={ "text-sm mt-1 capitalize", debtColor(debt.Category) }>
+		<div class={ "text-sm mt-3 font-medium capitalize font-mono", debtColor(debt.Category) }>
 			{ string(debt.Category) }
 		</div>
 	</div>
 }
 
 templ TodaySchedule(schedule engine.Schedule) {
-	<div id="today-schedule" class="rounded-xl bg-gray-900 border border-gray-800 p-6">
-		<h2 class="text-lg font-semibold text-gray-100 mb-4">Today's Schedule</h2>
+	<div id="today-schedule" class="section-ruled">
+		<h2 class="font-display text-lg text-gray-100 mb-4">Today</h2>
 		if len(schedule.Points) == 0 {
-			<p class="text-gray-400">No sleep data yet. <a href="/sleep" class="text-indigo-400 hover:text-indigo-300">Log your sleep</a> to see your energy schedule.</p>
+			<p class="text-gray-500">No sleep data yet. <a href="/sleep" class="text-dusk hover:text-dawn transition-colors underline underline-offset-2">Log your sleep</a> to see your energy schedule.</p>
 		} else {
 			<div class="flex gap-2 flex-wrap">
 				for _, zone := range uniqueZones(schedule.Points) {
-					<span class={ "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium", zoneBadgeClass(zone) }>
+					<span class={ "inline-flex items-center rounded-md px-3 py-1 text-xs font-mono font-medium", zoneBadgeClass(zone) }>
 						{ zoneLabel(zone) }
 					</span>
 				}
@@ -154,25 +151,55 @@ templ TodaySchedule(schedule engine.Schedule) {
 	</div>
 }
 
-templ TimeCard(label, value, colorClass string) {
-	<div class="rounded-xl bg-gray-900 border border-gray-800 p-4">
-		<div class="text-xs font-medium text-gray-400">{ label }</div>
-		<div class={ "text-sm font-semibold mt-1", colorClass }>{ value }</div>
+templ TimeCard(label, value, colorName string) {
+	<div class={ "bg-night p-4", timeCardBorder(colorName) }>
+		<div class="text-xs font-mono uppercase tracking-widest text-gray-600">{ label }</div>
+		<div class={ "text-sm font-semibold mt-1.5 font-mono", timeCardText(colorName) }>{ value }</div>
 	</div>
+}
+
+func timeCardBorder(colorName string) string {
+	switch colorName {
+	case "noon":
+		return "border-t-2 border-t-noon"
+	case "ember":
+		return "border-t-2 border-t-ember"
+	case "horizon":
+		return "border-t-2 border-t-horizon"
+	case "twilight":
+		return "border-t-2 border-t-twilight"
+	default:
+		return "border-t-2 border-t-dusk"
+	}
+}
+
+func timeCardText(colorName string) string {
+	switch colorName {
+	case "noon":
+		return "text-noon"
+	case "ember":
+		return "text-ember"
+	case "horizon":
+		return "text-horizon"
+	case "twilight":
+		return "text-twilight"
+	default:
+		return "text-dusk"
+	}
 }
 
 func debtColor(cat engine.DebtCategory) string {
 	switch cat {
 	case engine.DebtNone:
-		return "text-green-400"
+		return "text-noon"
 	case engine.DebtLow:
-		return "text-yellow-400"
+		return "text-horizon"
 	case engine.DebtModerate:
-		return "text-orange-400"
+		return "text-ember"
 	case engine.DebtHigh, engine.DebtSevere:
-		return "text-red-400"
+		return "text-dawn"
 	default:
-		return "text-gray-400"
+		return "text-gray-500"
 	}
 }
 
@@ -210,18 +237,18 @@ func zoneLabel(zone string) string {
 func zoneBadgeClass(zone string) string {
 	switch zone {
 	case engine.ZoneSleepInertia:
-		return "bg-orange-400/10 text-orange-400"
+		return "bg-ember-muted text-ember"
 	case engine.ZoneMorningPeak:
-		return "bg-green-400/10 text-green-400"
+		return "bg-noon-muted text-noon"
 	case engine.ZoneAfternoonDip:
-		return "bg-yellow-400/10 text-yellow-400"
+		return "bg-dawn-muted text-dawn"
 	case engine.ZoneEveningPeak:
-		return "bg-green-400/10 text-green-400"
+		return "bg-noon-muted text-noon"
 	case engine.ZoneWindDown:
-		return "bg-purple-400/10 text-purple-400"
+		return "bg-twilight-muted text-twilight"
 	case engine.ZoneMelatoninWindow:
-		return "bg-blue-400/10 text-blue-400"
+		return "bg-dusk-muted text-dusk"
 	default:
-		return "bg-gray-400/10 text-gray-400"
+		return "bg-night-border text-gray-400"
 	}
 }
