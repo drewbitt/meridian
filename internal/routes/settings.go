@@ -3,6 +3,7 @@ package routes
 import (
 	"bytes"
 	"net/http"
+	"strconv"
 
 	"github.com/drewbitt/circadian/internal/templates"
 	"github.com/pocketbase/pocketbase"
@@ -17,8 +18,9 @@ func registerSettingsRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 		}
 
 		settings, _ := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": info.Auth.Id})
+		saved := re.Request.URL.Query().Get("saved") == "1"
 		var buf bytes.Buffer
-		templates.Settings(settings).Render(re.Request.Context(), &buf)
+		templates.Settings(settings, saved).Render(re.Request.Context(), &buf)
 		re.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
 		re.Response.Write(buf.Bytes())
 		return nil
@@ -30,21 +32,11 @@ func registerSettingsRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/settings")
 		}
 
-		data := struct {
-			SleepNeedHours       float64 `json:"sleep_need_hours" form:"sleep_need_hours"`
-			NtfyTopic            string  `json:"ntfy_topic" form:"ntfy_topic"`
-			NtfyServer           string  `json:"ntfy_server" form:"ntfy_server"`
-			NtfyAccessToken      string  `json:"ntfy_access_token" form:"ntfy_access_token"`
-			SiteURL              string  `json:"site_url" form:"site_url"`
-			FitbitClientID       string  `json:"fitbit_client_id" form:"fitbit_client_id"`
-			FitbitClientSecret   string  `json:"fitbit_client_secret" form:"fitbit_client_secret"`
-			NotificationsEnabled bool    `json:"notifications_enabled" form:"notifications_enabled"`
-		}{}
-		if err := re.BindBody(&data); err != nil {
+		if err := re.Request.ParseForm(); err != nil {
 			return re.BadRequestError("Invalid data", err)
 		}
+		form := re.Request.PostForm
 
-		// Find or create settings record.
 		settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": info.Auth.Id})
 		if err != nil {
 			collection, err := app.FindCollectionByNameOrId("settings")
@@ -55,27 +47,27 @@ func registerSettingsRoutes(se *core.ServeEvent, app *pocketbase.PocketBase) {
 			settings.Set("user", info.Auth.Id)
 		}
 
-		if data.SleepNeedHours > 0 {
-			settings.Set("sleep_need_hours", data.SleepNeedHours)
+		if v, err := strconv.ParseFloat(form.Get("sleep_need_hours"), 64); err == nil && v > 0 {
+			settings.Set("sleep_need_hours", v)
 		}
-		settings.Set("ntfy_topic", data.NtfyTopic)
-		if data.NtfyServer != "" {
-			settings.Set("ntfy_server", data.NtfyServer)
+		settings.Set("ntfy_topic", form.Get("ntfy_topic"))
+		if v := form.Get("ntfy_server"); v != "" {
+			settings.Set("ntfy_server", v)
 		}
-		settings.Set("ntfy_access_token", data.NtfyAccessToken)
-		settings.Set("site_url", data.SiteURL)
-		if data.FitbitClientID != "" {
-			settings.Set("fitbit_client_id", data.FitbitClientID)
+		settings.Set("ntfy_access_token", form.Get("ntfy_access_token"))
+		settings.Set("site_url", form.Get("site_url"))
+		if v := form.Get("fitbit_client_id"); v != "" {
+			settings.Set("fitbit_client_id", v)
 		}
-		if data.FitbitClientSecret != "" {
-			settings.Set("fitbit_client_secret", data.FitbitClientSecret)
+		if v := form.Get("fitbit_client_secret"); v != "" {
+			settings.Set("fitbit_client_secret", v)
 		}
-		settings.Set("notifications_enabled", data.NotificationsEnabled)
+		settings.Set("notifications_enabled", form.Get("notifications_enabled") == "on")
 
 		if err := app.Save(settings); err != nil {
 			return re.InternalServerError("Failed to save settings", err)
 		}
 
-		return re.Redirect(http.StatusSeeOther, "/settings")
+		return re.Redirect(http.StatusSeeOther, "/settings?saved=1")
 	})
 }

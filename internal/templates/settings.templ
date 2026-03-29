@@ -5,13 +5,19 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-templ Settings(settings *core.Record) {
+templ Settings(settings *core.Record, saved bool) {
 	@Layout("Settings") {
 		<div class="mx-auto max-w-lg space-y-6">
+			if saved {
+				<div id="toast" class="fixed bottom-6 right-6 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-out">
+					Settings saved
+				</div>
+			}
+
 			<!-- General Settings -->
 			<div class="rounded-xl bg-gray-900 border border-gray-800 p-6">
 				<h2 class="text-lg font-semibold text-gray-100 mb-6">Settings</h2>
-				<form method="POST" action="/settings" class="space-y-6">
+				<form id="settings-form" method="POST" action="/settings" class="space-y-6">
 					<div>
 						<label for="sleep_need_hours" class="block text-sm font-medium text-gray-300 mb-2">
 							Sleep Need (hours)
@@ -69,7 +75,7 @@ templ Settings(settings *core.Record) {
 							value={ getSettingStr(settings, "ntfy_access_token") }
 							class="block w-full rounded-lg bg-gray-800 border border-gray-700 px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-indigo-500 focus:ring-indigo-500"
 						/>
-						<p class="mt-1 text-xs text-gray-500">Required for self-hosted ntfy servers with auth</p>
+						<p class="mt-1 text-xs text-gray-500">Generate with <code class="text-gray-400">ntfy token add &lt;user&gt;</code> — <a href="https://docs.ntfy.sh/publish/#access-tokens" target="_blank" class="text-indigo-400 hover:text-indigo-300">docs</a></p>
 					</div>
 
 					<div>
