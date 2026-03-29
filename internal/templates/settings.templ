@@ -5,12 +5,22 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-templ Settings(settings *core.Record, saved bool) {
+templ Settings(settings *core.Record, saved bool, importedCount string, importError string) {
 	@Layout("Settings") {
 		<div class="mx-auto max-w-lg space-y-6">
 			if saved {
 				<div id="toast" class="fixed bottom-6 right-6 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-out">
 					Settings saved
+				</div>
+			}
+			if importedCount != "" {
+				<div id="toast-import" class="fixed bottom-6 right-6 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-out">
+					Imported { importedCount } sleep records
+				</div>
+			}
+			if importError != "" {
+				<div id="toast-error" class="fixed bottom-6 right-6 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-lg animate-fade-out">
+					{ importError }
 				</div>
 			}
 
@@ -169,7 +179,7 @@ templ Settings(settings *core.Record, saved bool) {
 					<div class="border-t border-gray-800 pt-4">
 						<div class="text-sm font-medium text-gray-200 mb-3">File Import</div>
 						<form
-							action="/api/import"
+							action="/settings/import"
 							method="POST"
 							enctype="multipart/form-data"
 							class="space-y-3"
