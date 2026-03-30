@@ -15,12 +15,27 @@ import (
 var errFitbitAPI = errors.New("fitbit API error")
 
 // FitbitOAuthConfig holds OAuth2 configuration for Fitbit.
+// Callers should set ClientID, ClientSecret, and RedirectURL per-user before use.
 var FitbitOAuthConfig = &oauth2.Config{
 	Scopes: []string{"sleep"},
 	Endpoint: oauth2.Endpoint{ //nolint:gosec // OAuth URLs, not credentials
 		AuthURL:  "https://www.fitbit.com/oauth2/authorize",
 		TokenURL: "https://api.fitbit.com/oauth2/token",
 	},
+}
+
+// NewFitbitOAuthConfig creates a per-user Fitbit OAuth2 config.
+func NewFitbitOAuthConfig(clientID, clientSecret, redirectURL string) *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Scopes:       []string{"sleep"},
+		Endpoint: oauth2.Endpoint{ //nolint:gosec // OAuth URLs, not credentials
+			AuthURL:  "https://www.fitbit.com/oauth2/authorize",
+			TokenURL: "https://api.fitbit.com/oauth2/token",
+		},
+		RedirectURL: redirectURL,
+	}
 }
 
 // fitbitSleepResponse maps the Fitbit sleep API response.
@@ -55,8 +70,8 @@ type fitbitProfileResponse struct {
 }
 
 // FetchFitbitTimezone returns the IANA timezone from the user's Fitbit profile.
-func FetchFitbitTimezone(ctx context.Context, token *oauth2.Token) (*time.Location, error) {
-	client := FitbitOAuthConfig.Client(ctx, token)
+func FetchFitbitTimezone(ctx context.Context, cfg *oauth2.Config, token *oauth2.Token) (*time.Location, error) {
+	client := cfg.Client(ctx, token)
 
 	resp, err := client.Get("https://api.fitbit.com/1/user/-/profile.json")
 	if err != nil {
@@ -85,8 +100,8 @@ func FetchFitbitTimezone(ctx context.Context, token *oauth2.Token) (*time.Locati
 // loc is the user's Fitbit profile timezone — Fitbit returns times without
 // offsets, so we need it to interpret them correctly. Use FetchFitbitTimezone
 // to obtain this.
-func FetchFitbitSleep(ctx context.Context, token *oauth2.Token, date time.Time, loc *time.Location) ([]SleepRecord, error) {
-	client := FitbitOAuthConfig.Client(ctx, token)
+func FetchFitbitSleep(ctx context.Context, cfg *oauth2.Config, token *oauth2.Token, date time.Time, loc *time.Location) ([]SleepRecord, error) {
+	client := cfg.Client(ctx, token)
 
 	dateStr := date.Format("2006-01-02")
 	url := fmt.Sprintf("%s/user/-/sleep/date/%s.json", fitbitBaseURL, dateStr)
@@ -157,8 +172,8 @@ func FetchFitbitSleep(ctx context.Context, token *oauth2.Token, date time.Time, 
 }
 
 // RefreshFitbitToken refreshes an expired Fitbit OAuth2 token.
-func RefreshFitbitToken(ctx context.Context, token *oauth2.Token) (*oauth2.Token, error) {
-	src := FitbitOAuthConfig.TokenSource(ctx, token)
+func RefreshFitbitToken(ctx context.Context, cfg *oauth2.Config, token *oauth2.Token) (*oauth2.Token, error) {
+	src := cfg.TokenSource(ctx, token)
 	newToken, err := src.Token()
 	if err != nil {
 		return nil, fmt.Errorf("refresh fitbit token: %w", err)

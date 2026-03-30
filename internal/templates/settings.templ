@@ -2,15 +2,21 @@ package templates
 
 import (
 	"fmt"
+	"strings"
 	"github.com/pocketbase/pocketbase/core"
 )
 
-templ Settings(settings *core.Record, saved bool, importedCount string, importError string) {
+templ Settings(settings *core.Record, saved bool, importedCount string, importError string, fitbitError string, fitbitConnected bool) {
 	@Layout("Settings") {
 		<div class="mx-auto max-w-lg space-y-6">
 			if saved {
 				<div id="toast" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
 					Settings saved
+				</div>
+			}
+			if fitbitConnected {
+				<div id="toast-fitbit" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Fitbit connected successfully
 				</div>
 			}
 			if importedCount != "" {
@@ -21,6 +27,11 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 			if importError != "" {
 				<div id="toast-error" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
 					{ importError }
+				</div>
+			}
+			if fitbitError == "not_configured" {
+				<div id="toast-fitbit-error" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Enter your Fitbit Client ID and Secret below, then save before connecting.
 				</div>
 			}
 
@@ -128,6 +139,13 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							value={ getSettingStr(settings, "fitbit_client_secret") }
 							class="input-field"
 						/>
+						<p class="mt-1 text-xs text-gray-600">
+							Create a Fitbit app at
+							<a href="https://dev.fitbit.com/apps/new" target="_blank" class="text-dusk hover:text-dawn transition-colors">dev.fitbit.com/apps/new</a>.
+							Set OAuth 2.0 Application Type to <strong class="text-gray-500">Personal</strong>,
+							Callback URL to <code class="text-gray-500 font-mono">{ callbackURL(settings) }</code>,
+							and select the <strong class="text-gray-500">Read</strong> access type.
+						</p>
 					</div>
 
 					<div class="flex items-center gap-3">
@@ -238,4 +256,14 @@ func hasFitbitToken(settings *core.Record) bool {
 		return false
 	}
 	return settings.GetString("fitbit_access_token") != ""
+}
+
+func callbackURL(settings *core.Record) string {
+	base := "http://127.0.0.1:8090"
+	if settings != nil {
+		if v := settings.GetString("site_url"); v != "" {
+			base = v
+		}
+	}
+	return strings.TrimRight(base, "/") + "/auth/fitbit/callback"
 }

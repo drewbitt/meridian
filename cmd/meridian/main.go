@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/drewbitt/meridian/assets"
@@ -99,6 +100,20 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 
 	for _, s := range settings {
 		userID := s.GetString("user")
+
+		// Build per-user OAuth config from their stored credentials.
+		clientID := s.GetString("fitbit_client_id")
+		clientSecret := s.GetString("fitbit_client_secret")
+		if clientID == "" || clientSecret == "" {
+			slog.Warn("fitbit credentials missing, skipping sync", "user_id", userID)
+			continue
+		}
+		siteURL := s.GetString("site_url")
+		if siteURL == "" {
+			siteURL = app.Settings().Meta.AppURL
+		}
+		cfg := ingest.NewFitbitOAuthConfig(clientID, clientSecret, strings.TrimRight(siteURL, "/")+"/auth/fitbit/callback")
+
 		token := &oauth2.Token{
 			AccessToken:  s.GetString("fitbit_access_token"),
 			RefreshToken: s.GetString("fitbit_refresh_token"),
@@ -107,7 +122,7 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 
 		// Refresh token if expired.
 		if token.Expiry.Before(time.Now()) {
-			newToken, err := ingest.RefreshFitbitToken(context.Background(), token)
+			newToken, err := ingest.RefreshFitbitToken(context.Background(), cfg, token)
 			if err != nil {
 				slog.Error("fitbit token refresh failed", "user_id", userID, "error", err)
 				continue
@@ -124,7 +139,7 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 
 		// Fetch user's timezone from Fitbit profile — their API returns
 		// sleep times in this timezone without offsets.
-		loc, err := ingest.FetchFitbitTimezone(context.Background(), token)
+		loc, err := ingest.FetchFitbitTimezone(context.Background(), cfg, token)
 		if err != nil {
 			slog.Warn("could not fetch fitbit timezone, falling back to UTC", "user_id", userID, "error", err)
 			loc = time.UTC
@@ -132,7 +147,7 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 
 		// Fetch yesterday's and today's sleep.
 		for _, date := range []time.Time{time.Now().AddDate(0, 0, -1), time.Now()} {
-			records, err := ingest.FetchFitbitSleep(context.Background(), token, date, loc)
+			records, err := ingest.FetchFitbitSleep(context.Background(), cfg, token, date, loc)
 			if err != nil {
 				slog.Error("fitbit sync failed", "user_id", userID, "error", err)
 				continue

@@ -2,7 +2,7 @@ package templates
 
 templ Layout(title string) {
 	<!DOCTYPE html>
-	<html lang="en" class="h-full">
+	<html lang="en" class="h-full" style="color-scheme: dark">
 	<head>
 		<meta charset="UTF-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -11,35 +11,34 @@ templ Layout(title string) {
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
 		<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 		<link rel="stylesheet" href="/assets/dist/styles.min.css"/>
+		<script type="importmap">
+		{
+			"imports": {
+				"chart.js/auto": "https://esm.sh/chart.js@4/auto",
+				"temporal-polyfill/global": "https://esm.sh/temporal-polyfill@0.2/global"
+			}
+		}
+		</script>
+		<script type="module">
+			import "temporal-polyfill/global";
+			const tz = Temporal.Now.timeZoneId();
+			if (tz) document.cookie = 'tz=' + encodeURIComponent(tz) + ';path=/;max-age=86400;SameSite=Lax';
+			window.__timeFmt = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' });
+			customElements.define('local-time', class extends HTMLElement {
+				connectedCallback() { this.#render(); }
+				static get observedAttributes() { return ['datetime']; }
+				attributeChangedCallback() { this.#render(); }
+				#render() {
+					const dt = this.getAttribute('datetime');
+					if (!dt) return;
+					const d = new Date(dt);
+					if (!isNaN(d)) this.textContent = window.__timeFmt.format(d);
+				}
+			});
+		</script>
 		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0-RC.8/bundles/datastar.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-		<script src="https://cdn.jsdelivr.net/npm/temporal-polyfill@0.2/global.min.js"></script>
 	</head>
 	<body class="h-full bg-night text-gray-200 font-body antialiased relative">
-		<script>
-			(function() {
-				var tz = Temporal.Now.timeZoneId();
-				if (tz) document.cookie = 'tz=' + encodeURIComponent(tz) + ';path=/;max-age=86400;SameSite=Lax';
-
-				// Shared formatter for consistent time display across cards and chart.
-				window.__timeFmt = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' });
-
-				// <local-time datetime="…"> custom element: formats UTC timestamps
-				// in the user's local timezone. Self-managing — works automatically
-				// with initial parse and SSE-patched DOM, no MutationObserver needed.
-				customElements.define('local-time', class extends HTMLElement {
-					connectedCallback() { this.#render(); }
-					static get observedAttributes() { return ['datetime']; }
-					attributeChangedCallback() { this.#render(); }
-					#render() {
-						var dt = this.getAttribute('datetime');
-						if (!dt) return;
-						var d = new Date(dt);
-						if (!isNaN(d)) this.textContent = window.__timeFmt.format(d);
-					}
-				});
-			})();
-		</script>
 		<div class="min-h-full relative z-10">
 			@Nav()
 			<main class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">

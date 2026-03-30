@@ -25,7 +25,9 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		saved := q.Get("saved") == "1"
 		importedCount := q.Get("imported")
 		importError := q.Get("import_error")
-		return render(re, templates.Settings(settings, saved, importedCount, importError))
+		fitbitError := q.Get("fitbit_error")
+		fitbitConnected := q.Get("fitbit") == "connected"
+		return render(re, templates.Settings(settings, saved, importedCount, importError, fitbitError, fitbitConnected))
 	})
 
 	se.Router.POST("/settings", func(re *core.RequestEvent) error {

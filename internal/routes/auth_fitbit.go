@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/drewbitt/meridian/internal/ingest"
 	"github.com/pocketbase/pocketbase/core"
 	"golang.org/x/oauth2"
 )
@@ -29,9 +28,9 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/settings")
 		}
 
-		cfg := fitbitConfig(app)
+		cfg := fitbitConfigForUser(app, userID)
 		if cfg == nil {
-			return re.BadRequestError("Fitbit OAuth not configured", nil)
+			return re.Redirect(http.StatusSeeOther, "/settings?fitbit_error=not_configured")
 		}
 
 		nonce, err := generateNonce()
@@ -57,9 +56,9 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 			return re.BadRequestError("Invalid state", err)
 		}
 
-		cfg := fitbitConfig(app)
+		cfg := fitbitConfigForUser(app, userID)
 		if cfg == nil {
-			return re.BadRequestError("Fitbit OAuth not configured", nil)
+			return re.Redirect(http.StatusSeeOther, "/settings?fitbit_error=not_configured")
 		}
 
 		token, err := cfg.Exchange(context.Background(), code)
@@ -89,9 +88,21 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 	})
 }
 
-func fitbitConfig(app core.App) *oauth2.Config {
-	settings, err := app.FindFirstRecordByFilter("settings", "fitbit_client_id != ''", nil)
+// fitbitConfigForUser builds an OAuth2 config from the given user's settings.
+func fitbitConfigForUser(app core.App, userID string) *oauth2.Config {
+	settings, err := app.FindFirstRecordByFilter("settings", "user = {:user} && fitbit_client_id != ''", map[string]any{"user": userID})
 	if err != nil {
+		return nil
+	}
+
+	return buildFitbitConfig(app, settings)
+}
+
+// buildFitbitConfig creates an OAuth2 config from a settings record.
+func buildFitbitConfig(app core.App, settings *core.Record) *oauth2.Config {
+	clientID := settings.GetString("fitbit_client_id")
+	clientSecret := settings.GetString("fitbit_client_secret")
+	if clientID == "" || clientSecret == "" {
 		return nil
 	}
 
@@ -100,9 +111,9 @@ func fitbitConfig(app core.App) *oauth2.Config {
 		siteURL = app.Settings().Meta.AppURL
 	}
 
-	cfg := &oauth2.Config{
-		ClientID:     settings.GetString("fitbit_client_id"),
-		ClientSecret: settings.GetString("fitbit_client_secret"),
+	return &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
 		Scopes:       []string{"sleep"},
 		Endpoint: oauth2.Endpoint{ //nolint:gosec // OAuth URLs, not credentials
 			AuthURL:  "https://www.fitbit.com/oauth2/authorize",
@@ -110,13 +121,6 @@ func fitbitConfig(app core.App) *oauth2.Config {
 		},
 		RedirectURL: strings.TrimRight(siteURL, "/") + "/auth/fitbit/callback",
 	}
-
-	if cfg.ClientID == "" || cfg.ClientSecret == "" {
-		return nil
-	}
-
-	ingest.FitbitOAuthConfig = cfg
-	return cfg
 }
 
 func generateNonce() (string, error) {

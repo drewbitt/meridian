@@ -59,14 +59,17 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 			}
 		</div>
 
-		<script>
-			window.energyChart = null;
+		<script type="module">
+			import Chart from "chart.js/auto";
+
+			let chart = null;
+			const fmt = window.__timeFmt;
 
 			window.updateEnergyChart = function(points) {
 				const ctx = document.getElementById('energy-chart');
 				if (!ctx) return;
 
-				const labels = points.map(p => window.__timeFmt.format(new Date(p.time)));
+				const labels = points.map(p => fmt.format(new Date(p.time)));
 				const data = points.map(p => p.alertness);
 				const zones = points.map(p => p.zone);
 
@@ -82,16 +85,16 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 				};
 				const bgColors = zones.map(z => zoneColors[z] || 'rgba(30, 39, 68, 0.4)');
 
-				if (window.energyChart) {
-					window.energyChart.data.labels = labels;
-					window.energyChart.data.datasets[0].data = data;
-					window.energyChart.data.datasets[0].backgroundColor = bgColors;
-					window.energyChart.data.datasets[0].borderColor = 'rgba(129, 140, 248, 0.7)';
-					window.energyChart.update('none');
+				if (chart) {
+					chart.data.labels = labels;
+					chart.data.datasets[0].data = data;
+					chart.data.datasets[0].backgroundColor = bgColors;
+					chart.data.datasets[0].borderColor = 'rgba(129, 140, 248, 0.7)';
+					chart.update('none');
 					return;
 				}
 
-				window.energyChart = new Chart(ctx, {
+				chart = new Chart(ctx, {
 					type: 'line',
 					data: {
 						labels: labels,

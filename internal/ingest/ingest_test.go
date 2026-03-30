@@ -715,7 +715,7 @@ func TestFetchFitbitSleep(t *testing.T) {
 	defer func() { fitbitBaseURL = orig }()
 
 	est, _ := time.LoadLocation("America/New_York")
-	records, err := FetchFitbitSleep(t.Context(), &oauth2.Token{
+	records, err := FetchFitbitSleep(t.Context(), FitbitOAuthConfig, &oauth2.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(time.Hour),
@@ -776,7 +776,7 @@ func TestFetchFitbitSleep_NonMainSleep(t *testing.T) {
 	fitbitBaseURL = srv.URL
 	defer func() { fitbitBaseURL = orig }()
 
-	records, err := FetchFitbitSleep(t.Context(), &oauth2.Token{
+	records, err := FetchFitbitSleep(t.Context(), FitbitOAuthConfig, &oauth2.Token{
 		AccessToken: "test",
 		Expiry:      time.Now().Add(time.Hour),
 	}, time.Date(2024, 3, 11, 0, 0, 0, 0, time.UTC), time.UTC)
@@ -799,7 +799,7 @@ func TestFetchFitbitSleep_APIError(t *testing.T) {
 	fitbitBaseURL = srv.URL
 	defer func() { fitbitBaseURL = orig }()
 
-	_, err := FetchFitbitSleep(t.Context(), &oauth2.Token{
+	_, err := FetchFitbitSleep(t.Context(), FitbitOAuthConfig, &oauth2.Token{
 		AccessToken: "expired",
 		Expiry:      time.Now().Add(time.Hour),
 	}, time.Date(2024, 3, 11, 0, 0, 0, 0, time.UTC), time.UTC)
