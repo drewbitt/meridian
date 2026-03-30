@@ -50,6 +50,13 @@ COPY --from=build --chown=65532:65532 /pb_data /pb_data
 
 ENV ALLOW_REGISTRATION=true
 
+# Optional: encrypt PocketBase settings at rest (SMTP creds, OAuth tokens, etc.)
+# Protects against leaked backups/volumes. Omitted for now to keep DB inspectable
+# during development. To enable, set PB_ENCRYPTION_KEY to a random 32-char string
+# and uncomment the ENV + update CMD below.
+# ENV PB_ENCRYPTION_KEY=""
+# CMD ["/app", "serve", "--http=0.0.0.0:8090", "--encryptionEnv=PB_ENCRYPTION_KEY"]
+
 EXPOSE 8090
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
