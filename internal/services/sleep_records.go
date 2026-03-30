@@ -6,7 +6,6 @@ import (
 
 	"github.com/drewbitt/meridian/internal/engine"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/samber/lo"
 )
 
 // ConvertSleepRecords converts PocketBase records into engine SleepRecords and
@@ -25,8 +24,9 @@ func ConvertSleepRecords(records []*core.Record) ([]engine.SleepRecord, []engine
 		awake int
 	}
 
-	raw := lo.Map(records, func(r *core.Record, _ int) rawPeriod {
-		return rawPeriod{
+	raw := make([]rawPeriod, len(records))
+	for i, r := range records {
+		raw[i] = rawPeriod{
 			start: r.GetDateTime("sleep_start").Time(),
 			end:   r.GetDateTime("sleep_end").Time(),
 			deep:  r.GetInt("deep_minutes"),
@@ -34,7 +34,7 @@ func ConvertSleepRecords(records []*core.Record) ([]engine.SleepRecord, []engine
 			light: r.GetInt("light_minutes"),
 			awake: r.GetInt("awake_minutes"),
 		}
-	})
+	}
 
 	sort.Slice(raw, func(i, j int) bool {
 		return raw[i].start.Before(raw[j].start)
@@ -57,18 +57,17 @@ func ConvertSleepRecords(records []*core.Record) ([]engine.SleepRecord, []engine
 		}
 	}
 
-	engineRecords := lo.Map(groups, func(g rawPeriod, _ int) engine.SleepRecord {
-		return engine.SleepRecord{
+	engineRecords := make([]engine.SleepRecord, len(groups))
+	periods := make([]engine.SleepPeriod, len(groups))
+	for i, g := range groups {
+		engineRecords[i] = engine.SleepRecord{
 			Date:            g.start,
 			SleepStart:      g.start,
 			SleepEnd:        g.end,
 			DurationMinutes: int(g.end.Sub(g.start).Minutes()),
 		}
-	})
-
-	periods := lo.Map(groups, func(g rawPeriod, _ int) engine.SleepPeriod {
-		return engine.SleepPeriod{Start: g.start, End: g.end}
-	})
+		periods[i] = engine.SleepPeriod{Start: g.start, End: g.end}
+	}
 
 	return engineRecords, periods
 }

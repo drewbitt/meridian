@@ -6,7 +6,6 @@ import (
 
 	"github.com/drewbitt/meridian/internal/engine"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/samber/lo"
 )
 
 var errNoRecords = errors.New("failed to load records")
@@ -63,10 +62,10 @@ func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine
 	engineRecords, periods := ConvertSleepRecords(records)
 	debt := engine.CalculateSleepDebt(engineRecords, sleepNeed, now)
 	wakeTime := time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, loc)
-	if len(periods) > 0 {
-		wakeTime = lo.MaxBy(periods, func(a, b engine.SleepPeriod) bool {
-			return a.End.After(b.End)
-		}).End
+	for _, p := range periods {
+		if p.End.After(wakeTime) {
+			wakeTime = p.End
+		}
 	}
 
 	points := engine.PredictEnergy(periods, wakeTime, wakeTime.Add(24*time.Hour))

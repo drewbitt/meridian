@@ -3,8 +3,6 @@ package engine
 import (
 	"math"
 	"time"
-
-	"gonum.org/v1/gonum/floats"
 )
 
 // DebtCategory classifies sleep debt severity.
@@ -91,12 +89,16 @@ func recencyWeights(n int) []float64 {
 	if n > 1 {
 		remaining := 0.85
 		decayFactor := 0.7
-		rawWeights := make([]float64, n-1)
-		for i := range rawWeights {
-			rawWeights[i] = math.Pow(decayFactor, float64(i))
+		sum := 0.0
+		for i := range n - 1 {
+			w := math.Pow(decayFactor, float64(i))
+			weights[1+i] = w
+			sum += w
 		}
-		floats.Scale(remaining/floats.Sum(rawWeights), rawWeights)
-		copy(weights[1:], rawWeights)
+		scale := remaining / sum
+		for i := 1; i < n; i++ {
+			weights[i] *= scale
+		}
 	}
 
 	return weights

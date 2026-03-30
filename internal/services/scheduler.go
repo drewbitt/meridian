@@ -28,8 +28,7 @@ func UpdateUserSchedule(app core.App, userID string) error {
 	if err != nil {
 		return fmt.Errorf("compute schedule: %w", err)
 	}
-	loc := UserLocation(app, userID)
-	return storeSchedule(app, userID, schedule.WakeTime, rawPoints, loc)
+	return storeSchedule(app, userID, schedule.WakeTime, rawPoints, schedule.WakeTime.Location())
 }
 
 // RunMorningJob computes and stores the energy schedule for a user,
@@ -58,7 +57,7 @@ func RunMorningJob(app core.App, userID string) error {
 		return fmt.Errorf("compute schedule: %w", err)
 	}
 
-	loc := UserLocation(app, userID)
+	loc := schedule.WakeTime.Location()
 	if err := storeSchedule(app, userID, schedule.WakeTime, rawPoints, loc); err != nil {
 		slog.Error("failed to store schedule", "user_id", userID, "error", err)
 	}

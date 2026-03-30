@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/drewbitt/meridian/internal/ingest"
@@ -41,17 +40,7 @@ func parseImportSource(r io.Reader, filename, source string) ([]ingest.SleepReco
 	case "healthconnect":
 		return ingest.ParseHealthConnect(io.LimitReader(r, maxUploadSize))
 	case "applehealth":
-		return importFileToDisk(io.LimitReader(r, maxUploadSize), filename, func(tmpPath string) ([]ingest.SleepRecord, error) {
-			if strings.HasSuffix(strings.ToLower(filename), ".zip") {
-				return ingest.ParseAppleHealthZip(tmpPath)
-			}
-			f, ferr := os.Open(tmpPath) //nolint:gosec // tmpPath from our own CreateTemp
-			if ferr != nil {
-				return nil, ferr
-			}
-			defer f.Close()
-			return ingest.ParseAppleHealthXML(f)
-		})
+		return importFileToDisk(io.LimitReader(r, maxUploadSize), filename, ingest.ParseAppleHealthFile)
 	case "gadgetbridge":
 		return importFileToDisk(io.LimitReader(r, maxUploadSize), filename, ingest.ParseGadgetbridge)
 	default:

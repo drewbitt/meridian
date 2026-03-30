@@ -3,8 +3,6 @@ package engine
 import (
 	"math"
 	"time"
-
-	"github.com/samber/lo"
 )
 
 // Zone names for the energy schedule.
@@ -72,9 +70,12 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time) Schedule {
 	}
 	var extrema []extremum
 
-	postInertia := lo.FilterMap(wakePoints, func(idx int, _ int) (int, bool) {
-		return idx, !classified[idx].Time.Before(inertiaEnd)
-	})
+	var postInertia []int
+	for _, idx := range wakePoints {
+		if !classified[idx].Time.Before(inertiaEnd) {
+			postInertia = append(postInertia, idx)
+		}
+	}
 	for i := 1; i < len(postInertia)-1; i++ {
 		prev := classified[postInertia[i-1]].Alertness
 		curr := classified[postInertia[i]].Alertness
@@ -170,13 +171,17 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time) Schedule {
 	// the wake window (up to melatonin onset). The FIPS model produces a
 	// single circadian peak per day (~17:00–18:00 for typical schedules),
 	// not a separate morning peak, so we use the global maximum directly.
-	candidates := lo.Filter(classified, func(p EnergyPoint, _ int) bool {
-		return !p.Time.Before(inertiaEnd) && p.Time.Before(melStart)
-	})
-	if len(candidates) > 0 {
-		peakPoint := lo.MaxBy(candidates, func(a, b EnergyPoint) bool {
-			return a.Alertness > b.Alertness
-		})
+	var peakPoint *EnergyPoint
+	for i := range classified {
+		p := &classified[i]
+		if p.Time.Before(inertiaEnd) || !p.Time.Before(melStart) {
+			continue
+		}
+		if peakPoint == nil || p.Alertness > peakPoint.Alertness {
+			peakPoint = p
+		}
+	}
+	if peakPoint != nil {
 		sched.BestFocusStart = peakPoint.Time.Add(-60 * time.Minute)
 		sched.BestFocusEnd = peakPoint.Time.Add(60 * time.Minute)
 	}
