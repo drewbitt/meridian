@@ -7,3 +7,5 @@ assets/dist/*
 *.exe
 .env
 .mise/
+mise.local.toml
+mise.*.local.toml

@@ -4,6 +4,7 @@ go = "1.26"
 "go:github.com/a-h/templ/cmd/templ" = "latest"
 "go:github.com/air-verse/air" = "latest"
 golangci-lint = "2.11.4"
+git-cliff = "latest"
 
 [hooks]
 enter = 'git config core.hooksPath .githooks 2>/dev/null || true'
@@ -96,6 +97,20 @@ run = """
 golangci-lint run ./...
 go mod tidy -diff
 """
+
+# ── Release ───────────────────────────────────────────────────
+
+[tasks.changelog]
+description = "Preview changelog for unreleased commits"
+run = "git cliff --unreleased"
+
+[tasks."changelog:full"]
+description = "Generate full CHANGELOG.md"
+run = "git cliff -o CHANGELOG.md"
+
+[tasks."release:next"]
+description = "Show what the next version would be"
+run = "git cliff --bumped-version"
 
 # ── Clean ─────────────────────────────────────────────────────
 
