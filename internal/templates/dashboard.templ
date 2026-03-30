@@ -59,6 +59,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 			}
 		</div>
 
+		<script>window.updateEnergyChart = function(d) { window.__chartInit = d; };</script>
 		<script type="module">
 			import Chart from "chart.js/auto";
 
@@ -134,6 +135,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 					},
 				});
 			};
+			if (window.__chartInit) { window.updateEnergyChart(window.__chartInit); window.__chartInit = null; }
 		</script>
 	}
 }
