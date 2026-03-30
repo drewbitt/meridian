@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/drewbitt/meridian/internal/engine"
+	"github.com/drewbitt/meridian/internal/services"
 	"github.com/drewbitt/meridian/internal/templates"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/starfederation/datastar-go/datastar"
@@ -69,7 +70,8 @@ func registerDashboardRoutes(se *core.ServeEvent, app core.App) {
 }
 
 func loadTodayData(app core.App, userID string) (engine.Schedule, engine.SleepDebt, error) {
-	today := time.Now().Format("2006-01-02")
+	loc := services.UserLocation(app, userID)
+	today := time.Now().In(loc).Format("2006-01-02")
 
 	// Try loading cached schedule.
 	scheduleRec, err := app.FindFirstRecordByFilter("energy_schedules",
@@ -86,7 +88,8 @@ func loadTodayData(app core.App, userID string) (engine.Schedule, engine.SleepDe
 		if err == nil && len(points) > 0 {
 			wakeTime := scheduleRec.GetDateTime("wake_time").Time()
 			schedule := engine.ClassifyZones(points, wakeTime)
-			debt := loadDebt(app, userID)
+			// Still need fresh debt calculation (debt isn't cached).
+			debt := services.ComputeUserDebt(app, userID)
 			return schedule, debt, nil
 		}
 		// Cached data corrupt or empty — fall through to recompute.
@@ -96,89 +99,7 @@ func loadTodayData(app core.App, userID string) (engine.Schedule, engine.SleepDe
 	return computeSchedule(app, userID)
 }
 
-func loadDebt(app core.App, userID string) engine.SleepDebt {
-	fourteenDaysAgo := time.Now().AddDate(0, 0, -14).Format("2006-01-02 00:00:00")
-	records, err := app.FindRecordsByFilter(
-		"sleep_records",
-		"user = {:user} && date >= {:since}",
-		"-date", 0, 0,
-		map[string]any{"user": userID, "since": fourteenDaysAgo},
-	)
-	if err != nil {
-		return engine.SleepDebt{}
-	}
-
-	// Load sleep need from settings.
-	sleepNeed := 8.0
-	settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
-	if err == nil {
-		if sn := settings.GetFloat("sleep_need_hours"); sn > 0 {
-			sleepNeed = sn
-		}
-	}
-
-	var engineRecords []engine.SleepRecord
-	for _, r := range records {
-		engineRecords = append(engineRecords, engine.SleepRecord{
-			Date:            r.GetDateTime("date").Time(),
-			DurationMinutes: r.GetInt("duration_minutes"),
-		})
-	}
-
-	return engine.CalculateSleepDebt(engineRecords, sleepNeed, time.Now())
-}
-
 func computeSchedule(app core.App, userID string) (engine.Schedule, engine.SleepDebt, error) {
-	fourteenDaysAgo := time.Now().AddDate(0, 0, -14).Format("2006-01-02 00:00:00")
-	records, err := app.FindRecordsByFilter(
-		"sleep_records",
-		"user = {:user} && date >= {:since}",
-		"-date", 0, 0,
-		map[string]any{"user": userID, "since": fourteenDaysAgo},
-	)
-	if err != nil {
-		return engine.Schedule{}, engine.SleepDebt{}, err
-	}
-
-	sleepNeed := 8.0
-	settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
-	if err == nil {
-		if sn := settings.GetFloat("sleep_need_hours"); sn > 0 {
-			sleepNeed = sn
-		}
-	}
-
-	var engineRecords []engine.SleepRecord
-	var periods []engine.SleepPeriod
-	for _, r := range records {
-		engineRecords = append(engineRecords, engine.SleepRecord{
-			Date:            r.GetDateTime("date").Time(),
-			SleepStart:      r.GetDateTime("sleep_start").Time(),
-			SleepEnd:        r.GetDateTime("sleep_end").Time(),
-			DurationMinutes: r.GetInt("duration_minutes"),
-		})
-		periods = append(periods, engine.SleepPeriod{
-			Start: r.GetDateTime("sleep_start").Time(),
-			End:   r.GetDateTime("sleep_end").Time(),
-		})
-	}
-
-	debt := engine.CalculateSleepDebt(engineRecords, sleepNeed, time.Now())
-
-	now := time.Now()
-	wakeTime := time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location())
-	if len(periods) > 0 {
-		latest := periods[0]
-		for _, sp := range periods {
-			if sp.End.After(latest.End) {
-				latest = sp
-			}
-		}
-		wakeTime = latest.End
-	}
-
-	points := engine.PredictEnergy(periods, wakeTime, wakeTime.Add(24*time.Hour))
-	schedule := engine.ClassifyZones(points, wakeTime)
-
-	return schedule, debt, nil
+	schedule, _, debt, err := services.ComputeUserSchedule(app, userID)
+	return schedule, debt, err
 }

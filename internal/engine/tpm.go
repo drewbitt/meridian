@@ -6,8 +6,9 @@ package engine
 
 import (
 	"math"
-	"sort"
 	"time"
+
+	"github.com/google/go-intervals/timespanset"
 )
 
 // SleepPeriod represents a single sleep interval.
@@ -65,44 +66,32 @@ func PredictEnergy(sleepPeriods []SleepPeriod, predStart, predEnd time.Time) []E
 		return nil
 	}
 
-	// Sort sleep periods chronologically.
-	periods := make([]SleepPeriod, len(sleepPeriods))
-	copy(periods, sleepPeriods)
-	sort.Slice(periods, func(i, j int) bool {
-		return periods[i].Start.Before(periods[j].Start)
-	})
+	sleepSet := timespanset.Empty()
+	for _, sp := range sleepPeriods {
+		sleepSet.Insert(sp.Start, sp.End)
+	}
 
-	// Build the timeline: we need to simulate from the earliest sleep period
-	// (or predStart, whichever is earlier) to predEnd.
 	simStart := predStart
-	if len(periods) > 0 && periods[0].Start.Before(simStart) {
-		simStart = periods[0].Start
+	extentStart, _ := sleepSet.Extent()
+	if !extentStart.IsZero() && extentStart.Before(simStart) {
+		simStart = extentStart
 	}
 
 	// State variables
 	s := sInitial               // homeostatic pressure
 	var lastWakeTime *time.Time // when the person last woke up
-	sleeping := false
+	sleeping := sleepSet.Contains(simStart, simStart.Add(time.Nanosecond))
 	sleepPhase2 := false // true once S >= breakLevel during sleep
 	phase2Start := time.Time{}
 
-	// Determine initial sleep/wake state at simStart.
-	for _, sp := range periods {
-		if !simStart.Before(sp.Start) && simStart.Before(sp.End) {
-			sleeping = true
-			break
-		}
-	}
-
-	// If awake at simStart, find the most recent wake time.
+	// If awake at simStart, find the most recent wake time from actual sleep.
 	if !sleeping {
-		wt := simStart
-		for _, sp := range periods {
-			if sp.End.Before(simStart) || sp.End.Equal(simStart) {
-				wt = sp.End
+		sleepSet.IntervalsBetween(extentStart, simStart, func(_, end time.Time) bool {
+			if !end.After(simStart) {
+				lastWakeTime = &end
 			}
-		}
-		lastWakeTime = &wt
+			return true
+		})
 	}
 
 	step := time.Duration(sampleMinutes) * time.Minute
@@ -110,7 +99,7 @@ func PredictEnergy(sleepPeriods []SleepPeriod, predStart, predEnd time.Time) []E
 
 	for t := simStart; t.Before(predEnd); t = t.Add(step) {
 		// Check if we transition between sleep/wake at this step.
-		nowSleeping := isAsleep(t, periods)
+		nowSleeping := sleepSet.Contains(t, t.Add(time.Nanosecond))
 
 		if sleeping && !nowSleeping {
 			// Just woke up
@@ -119,8 +108,13 @@ func PredictEnergy(sleepPeriods []SleepPeriod, predStart, predEnd time.Time) []E
 			sleepPhase2 = false
 		}
 		if !sleeping && nowSleeping {
-			// Just fell asleep
-			sleepPhase2 = false
+			// Just fell asleep — determine initial sleep phase from current S.
+			if s >= sBreakLevel {
+				sleepPhase2 = true
+				phase2Start = t
+			} else {
+				sleepPhase2 = false
+			}
 		}
 		sleeping = nowSleeping
 
@@ -192,14 +186,4 @@ func alertnessToKSS(alertness float64) float64 {
 func timeOfDay(t time.Time) float64 {
 	h, m, sec := t.Clock()
 	return float64(h) + float64(m)/60.0 + float64(sec)/3600.0
-}
-
-// isAsleep returns true if time t falls within any sleep period.
-func isAsleep(t time.Time, periods []SleepPeriod) bool {
-	for _, sp := range periods {
-		if !t.Before(sp.Start) && t.Before(sp.End) {
-			return true
-		}
-	}
-	return false
 }

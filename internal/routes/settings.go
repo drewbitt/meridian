@@ -2,13 +2,11 @@ package routes
 
 import (
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 	"strconv"
-	"strings"
+	"time"
 
-	"github.com/drewbitt/meridian/internal/ingest"
+	"github.com/drewbitt/meridian/internal/services"
 	"github.com/drewbitt/meridian/internal/templates"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -26,8 +24,8 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		importedCount := q.Get("imported")
 		importError := q.Get("import_error")
 		fitbitError := q.Get("fitbit_error")
-		fitbitConnected := q.Get("fitbit") == "connected"
-		return render(re, templates.Settings(settings, saved, importedCount, importError, fitbitError, fitbitConnected))
+		fitbitStatus := q.Get("fitbit") // "connected", "disconnected", "synced"
+		return render(re, templates.Settings(settings, saved, importedCount, importError, fitbitError, fitbitStatus))
 	})
 
 	se.Router.POST("/settings", func(re *core.RequestEvent) error {
@@ -51,7 +49,7 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 			settings.Set("user", userID)
 		}
 
-		if v, err := strconv.ParseFloat(form.Get("sleep_need_hours"), 64); err == nil && v > 0 {
+		if v, err := strconv.ParseFloat(form.Get("sleep_need_hours"), 64); err == nil && v >= 4 && v <= 12 {
 			settings.Set("sleep_need_hours", v)
 		}
 		settings.Set("ntfy_topic", form.Get("ntfy_topic"))
@@ -60,6 +58,16 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		}
 		settings.Set("ntfy_access_token", form.Get("ntfy_access_token"))
 		settings.Set("site_url", form.Get("site_url"))
+		if tz := form.Get("timezone"); tz != "" {
+			if _, err := time.LoadLocation(tz); err == nil {
+				settings.Set("timezone", tz)
+			}
+		} else if loc := locationFromCookie(re); loc != nil {
+			// Auto-populate from browser cookie if the user didn't set one explicitly.
+			settings.Set("timezone", loc.String())
+		} else {
+			settings.Set("timezone", "")
+		}
 		if v := form.Get("fitbit_client_id"); v != "" {
 			settings.Set("fitbit_client_id", v)
 		}
@@ -73,6 +81,38 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		}
 
 		return re.Redirect(http.StatusSeeOther, "/settings?saved=1")
+	})
+
+	se.Router.POST("/settings/test-notification", func(re *core.RequestEvent) error {
+		userID, err := authedUserID(re)
+		if err != nil {
+			return re.JSON(401, map[string]string{"error": "not authenticated"})
+		}
+		_ = userID
+
+		if err := re.Request.ParseForm(); err != nil {
+			return re.JSON(400, map[string]string{"error": "invalid data"})
+		}
+		form := re.Request.PostForm
+
+		topic := form.Get("ntfy_topic")
+		if topic == "" {
+			return re.JSON(400, map[string]string{"error": "ntfy topic is required"})
+		}
+
+		if err := services.SendNotification(services.Notification{
+			Server:      form.Get("ntfy_server"),
+			Topic:       topic,
+			AccessToken: form.Get("ntfy_access_token"),
+			Title:       "Test Notification",
+			Message:     "This is a test notification from Meridian!",
+			Priority:    3,
+			Tags:        []string{"white_check_mark", "bell"},
+		}); err != nil {
+			return re.JSON(500, map[string]string{"error": err.Error()})
+		}
+
+		return re.JSON(200, map[string]bool{"success": true})
 	})
 
 	// File import (HTML form version — redirects back to settings with feedback).
@@ -99,65 +139,14 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		}
 		defer file.Close()
 
-		var records []ingest.SleepRecord
-
-		switch source {
-		case "healthconnect":
-			records, err = ingest.ParseHealthConnect(io.LimitReader(file, maxUploadSize))
-		case "applehealth":
-			records, err = importFileToDisk(io.LimitReader(file, maxUploadSize), header.Filename, func(tmpPath string) ([]ingest.SleepRecord, error) {
-				if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
-					return ingest.ParseAppleHealthZip(tmpPath)
-				}
-				f, ferr := os.Open(tmpPath) //nolint:gosec // tmpPath from our own CreateTemp
-				if ferr != nil {
-					return nil, ferr
-				}
-				defer f.Close()
-				return ingest.ParseAppleHealthXML(f)
-			})
-		case "gadgetbridge":
-			records, err = importFileToDisk(io.LimitReader(file, maxUploadSize), header.Filename, ingest.ParseGadgetbridge)
-		default:
-			return re.Redirect(http.StatusSeeOther, "/settings?import_error=Unknown+source")
-		}
-
+		records, err := parseImportSource(file, header.Filename, source)
 		if err != nil {
 			return re.Redirect(http.StatusSeeOther, "/settings?import_error=Failed+to+parse+file")
 		}
 
-		collection, err := app.FindCollectionByNameOrId("sleep_records")
-		if err != nil {
-			return re.Redirect(http.StatusSeeOther, "/settings?import_error=Internal+error")
-		}
-
 		imported := 0
 		for _, rec := range records {
-			dateStr := rec.Date.Format("2006-01-02")
-			existing, _ := app.FindFirstRecordByFilter("sleep_records",
-				"user = {:user} && date = {:date} && source = {:source}",
-				map[string]any{"user": userID, "date": dateStr, "source": rec.Source},
-			)
-
-			var record *core.Record
-			if existing != nil {
-				record = existing
-			} else {
-				record = core.NewRecord(collection)
-				record.Set("user", userID)
-			}
-
-			record.Set("date", rec.Date)
-			record.Set("sleep_start", rec.SleepStart)
-			record.Set("sleep_end", rec.SleepEnd)
-			record.Set("source", rec.Source)
-			record.Set("duration_minutes", rec.DurationMinutes)
-			record.Set("deep_minutes", rec.DeepMinutes)
-			record.Set("rem_minutes", rec.REMMinutes)
-			record.Set("light_minutes", rec.LightMinutes)
-			record.Set("awake_minutes", rec.AwakeMinutes)
-
-			if err := app.Save(record); err == nil {
+			if _, err := services.UpsertSleepRecord(app, userID, rec); err == nil {
 				imported++
 			}
 		}

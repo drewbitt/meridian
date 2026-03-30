@@ -38,7 +38,7 @@ func registerSleepRoutes(se *core.ServeEvent, app core.App) {
 			return re.BadRequestError("Invalid data", err)
 		}
 
-		loc := userLocationFromForm(re)
+		loc := userLocationFromForm(app, re)
 		sleepStart, err := time.ParseInLocation("2006-01-02T15:04", data.SleepStart, loc)
 		if err != nil {
 			return re.BadRequestError("Invalid sleep start time", err)
@@ -48,7 +48,7 @@ func registerSleepRoutes(se *core.ServeEvent, app core.App) {
 			return re.BadRequestError("Invalid sleep end time", err)
 		}
 
-		if sleepEnd.Before(sleepStart) {
+		if !sleepEnd.After(sleepStart) {
 			return re.BadRequestError("Wake time must be after sleep time", nil)
 		}
 

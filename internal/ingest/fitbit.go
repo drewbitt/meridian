@@ -14,22 +14,12 @@ import (
 
 var errFitbitAPI = errors.New("fitbit API error")
 
-// FitbitOAuthConfig holds OAuth2 configuration for Fitbit.
-// Callers should set ClientID, ClientSecret, and RedirectURL per-user before use.
-var FitbitOAuthConfig = &oauth2.Config{
-	Scopes: []string{"sleep"},
-	Endpoint: oauth2.Endpoint{ //nolint:gosec // OAuth URLs, not credentials
-		AuthURL:  "https://www.fitbit.com/oauth2/authorize",
-		TokenURL: "https://api.fitbit.com/oauth2/token",
-	},
-}
-
 // NewFitbitOAuthConfig creates a per-user Fitbit OAuth2 config.
 func NewFitbitOAuthConfig(clientID, clientSecret, redirectURL string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Scopes:       []string{"sleep"},
+		Scopes:       []string{"sleep", "profile"},
 		Endpoint: oauth2.Endpoint{ //nolint:gosec // OAuth URLs, not credentials
 			AuthURL:  "https://www.fitbit.com/oauth2/authorize",
 			TokenURL: "https://api.fitbit.com/oauth2/token",
@@ -102,10 +92,20 @@ func FetchFitbitTimezone(ctx context.Context, cfg *oauth2.Config, token *oauth2.
 // to obtain this.
 func FetchFitbitSleep(ctx context.Context, cfg *oauth2.Config, token *oauth2.Token, date time.Time, loc *time.Location) ([]SleepRecord, error) {
 	client := cfg.Client(ctx, token)
-
 	dateStr := date.Format("2006-01-02")
 	url := fmt.Sprintf("%s/user/-/sleep/date/%s.json", fitbitBaseURL, dateStr)
+	return fetchFitbitSleepURL(client, url, loc)
+}
 
+// FetchFitbitSleepRange retrieves sleep data for a date range (max 100 days per
+// Fitbit API limits) using the range endpoint — a single API call.
+func FetchFitbitSleepRange(ctx context.Context, cfg *oauth2.Config, token *oauth2.Token, start, end time.Time, loc *time.Location) ([]SleepRecord, error) {
+	client := cfg.Client(ctx, token)
+	url := fmt.Sprintf("%s/user/-/sleep/date/%s/%s.json", fitbitBaseURL, start.Format("2006-01-02"), end.Format("2006-01-02"))
+	return fetchFitbitSleepURL(client, url, loc)
+}
+
+func fetchFitbitSleepURL(client *http.Client, url string, loc *time.Location) ([]SleepRecord, error) {
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("fitbit API request: %w", err)
@@ -122,8 +122,12 @@ func FetchFitbitSleep(ctx context.Context, cfg *oauth2.Config, token *oauth2.Tok
 		return nil, fmt.Errorf("decode fitbit response: %w", err)
 	}
 
+	return parseFitbitSleepLogs(sleepResp.Sleep, loc), nil
+}
+
+func parseFitbitSleepLogs(logs []fitbitSleepLog, loc *time.Location) []SleepRecord {
 	var records []SleepRecord
-	for _, sl := range sleepResp.Sleep {
+	for _, sl := range logs {
 		if !sl.IsMainSleep {
 			continue
 		}
@@ -149,7 +153,6 @@ func FetchFitbitSleep(ctx context.Context, cfg *oauth2.Config, token *oauth2.Tok
 			DurationMinutes: int(sl.Duration / 60000),
 		}
 
-		// Extract stage data if available.
 		if summary := sl.Levels.Summary; summary != nil {
 			if v, ok := summary["deep"]; ok {
 				rec.DeepMinutes = v.Minutes
@@ -167,8 +170,7 @@ func FetchFitbitSleep(ctx context.Context, cfg *oauth2.Config, token *oauth2.Tok
 
 		records = append(records, rec)
 	}
-
-	return records, nil
+	return records
 }
 
 // RefreshFitbitToken refreshes an expired Fitbit OAuth2 token.

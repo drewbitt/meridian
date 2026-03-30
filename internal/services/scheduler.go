@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/drewbitt/meridian/internal/engine"
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -22,9 +21,20 @@ type SchedulerConfig struct {
 	NotificationsEnabled bool
 }
 
+// UpdateUserSchedule computes and stores the energy schedule for a user.
+// It does not dispatch notifications — call RunMorningJob for that.
+func UpdateUserSchedule(app core.App, userID string) error {
+	schedule, rawPoints, _, err := ComputeUserSchedule(app, userID)
+	if err != nil {
+		return fmt.Errorf("compute schedule: %w", err)
+	}
+	loc := UserLocation(app, userID)
+	return storeSchedule(app, userID, schedule.WakeTime, rawPoints, loc)
+}
+
 // RunMorningJob computes and stores the energy schedule for a user,
 // and dispatches scheduled notifications if enabled.
-func RunMorningJob(app *pocketbase.PocketBase, userID string) error {
+func RunMorningJob(app core.App, userID string) error {
 	settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
 	if err != nil {
 		return fmt.Errorf("load settings for user %s: %w", userID, err)
@@ -43,54 +53,13 @@ func RunMorningJob(app *pocketbase.PocketBase, userID string) error {
 		cfg.SleepNeedHours = 8.0
 	}
 
-	fourteenDaysAgo := time.Now().AddDate(0, 0, -14).Format("2006-01-02 00:00:00")
-	sleepRecords, err := app.FindRecordsByFilter(
-		"sleep_records",
-		"user = {:user} && date >= {:since}",
-		"-date",
-		0, 0,
-		map[string]any{"user": userID, "since": fourteenDaysAgo},
-	)
+	schedule, rawPoints, debt, err := ComputeUserSchedule(app, userID)
 	if err != nil {
-		return fmt.Errorf("load sleep records: %w", err)
+		return fmt.Errorf("compute schedule: %w", err)
 	}
 
-	var engineRecords []engine.SleepRecord
-	var sleepPeriods []engine.SleepPeriod
-	for _, r := range sleepRecords {
-		engineRecords = append(engineRecords, engine.SleepRecord{
-			Date:            r.GetDateTime("date").Time(),
-			SleepStart:      r.GetDateTime("sleep_start").Time(),
-			SleepEnd:        r.GetDateTime("sleep_end").Time(),
-			DurationMinutes: r.GetInt("duration_minutes"),
-		})
-		sleepPeriods = append(sleepPeriods, engine.SleepPeriod{
-			Start: r.GetDateTime("sleep_start").Time(),
-			End:   r.GetDateTime("sleep_end").Time(),
-		})
-	}
-
-	debt := engine.CalculateSleepDebt(engineRecords, cfg.SleepNeedHours, time.Now())
-
-	now := time.Now()
-	wakeTime := time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location())
-	if len(sleepPeriods) > 0 {
-		latest := sleepPeriods[0]
-		for _, sp := range sleepPeriods {
-			if sp.End.After(latest.End) {
-				latest = sp
-			}
-		}
-		wakeTime = latest.End
-	}
-
-	predStart := wakeTime
-	predEnd := wakeTime.Add(24 * time.Hour)
-	points := engine.PredictEnergy(sleepPeriods, predStart, predEnd)
-
-	schedule := engine.ClassifyZones(points, wakeTime)
-
-	if err := storeSchedule(app, userID, schedule); err != nil {
+	loc := UserLocation(app, userID)
+	if err := storeSchedule(app, userID, schedule.WakeTime, rawPoints, loc); err != nil {
 		slog.Error("failed to store schedule", "user_id", userID, "error", err)
 	}
 
@@ -98,8 +67,8 @@ func RunMorningJob(app *pocketbase.PocketBase, userID string) error {
 		morningMsg := fmt.Sprintf(
 			"Sleep debt: %.1fh (%s). Best focus: %s-%s.",
 			debt.Hours, debt.Category,
-			schedule.BestFocusStart.Format("3:04pm"),
-			schedule.BestFocusEnd.Format("3:04pm"),
+			schedule.BestFocusStart.In(loc).Format("3:04pm"),
+			schedule.BestFocusEnd.In(loc).Format("3:04pm"),
 		)
 		if err := SendNotification(cfg.baseNotif(
 			"Good morning!",
@@ -111,19 +80,19 @@ func RunMorningJob(app *pocketbase.PocketBase, userID string) error {
 			slog.Error("failed morning notification", "user_id", userID, "error", err)
 		}
 
-		dispatchScheduledNotifications(cfg, schedule)
+		dispatchScheduledNotifications(cfg, schedule, loc)
 	}
 
 	return nil
 }
 
-func storeSchedule(app *pocketbase.PocketBase, userID string, schedule engine.Schedule) error {
+func storeSchedule(app core.App, userID string, wakeTime time.Time, rawPoints []engine.EnergyPoint, loc *time.Location) error {
 	collection, err := app.FindCollectionByNameOrId("energy_schedules")
 	if err != nil {
 		return err
 	}
 
-	today := time.Now().Format("2006-01-02")
+	today := time.Now().In(loc).Format("2006-01-02")
 
 	existing, err := app.FindFirstRecordByFilter("energy_schedules",
 		"user = {:user} && date = {:date}",
@@ -139,8 +108,8 @@ func storeSchedule(app *pocketbase.PocketBase, userID string, schedule engine.Sc
 		record.Set("date", today)
 	}
 
-	record.Set("wake_time", schedule.WakeTime)
-	record.Set("schedule_json", schedule.Points)
+	record.Set("wake_time", wakeTime)
+	record.Set("schedule_json", rawPoints)
 
 	return app.Save(record)
 }
@@ -160,13 +129,13 @@ func (c SchedulerConfig) baseNotif(title, message string, priority int, delay ti
 	}
 }
 
-func dispatchScheduledNotifications(cfg SchedulerConfig, schedule engine.Schedule) {
+func dispatchScheduledNotifications(cfg SchedulerConfig, schedule engine.Schedule, loc *time.Location) {
 	now := time.Now()
 
 	notifs := []Notification{
 		cfg.baseNotif(
 			"Caffeine Cutoff Soon",
-			fmt.Sprintf("Last call for caffeine at %s", schedule.CaffeineCutoff.Format("3:04pm")),
+			fmt.Sprintf("Last call for caffeine at %s", schedule.CaffeineCutoff.In(loc).Format("3:04pm")),
 			3,
 			schedule.CaffeineCutoff.Add(-30*time.Minute).Sub(now),
 			[]string{"coffee", "warning"},
@@ -183,7 +152,7 @@ func dispatchScheduledNotifications(cfg SchedulerConfig, schedule engine.Schedul
 	if !schedule.OptimalNapStart.IsZero() {
 		notifs = append(notifs, cfg.baseNotif(
 			"Optimal Nap Window",
-			fmt.Sprintf("Good time for a 20-min nap until %s", schedule.OptimalNapEnd.Format("3:04pm")),
+			fmt.Sprintf("Good time for a 20-min nap until %s", schedule.OptimalNapEnd.In(loc).Format("3:04pm")),
 			2,
 			schedule.OptimalNapStart.Sub(now),
 			[]string{"bed", "battery"},

@@ -60,10 +60,12 @@ func ensureEnergySchedules(app core.App) error {
 }
 
 func ensureSettings(app core.App) error {
-	if _, err := app.FindCollectionByNameOrId("settings"); err == nil {
-		return nil
+	c, err := app.FindCollectionByNameOrId("settings")
+	if err == nil {
+		// Collection exists — ensure new fields are present.
+		return ensureSettingsFields(app, c)
 	}
-	c := core.NewBaseCollection("settings", "")
+	c = core.NewBaseCollection("settings", "")
 	authRule := "@request.auth.id != '' && user = @request.auth.id"
 	c.ListRule = &authRule
 	c.ViewRule = &authRule
@@ -76,12 +78,35 @@ func ensureSettings(app core.App) error {
 		&core.TextField{Name: "ntfy_server"},
 		&core.TextField{Name: "ntfy_access_token"},
 		&core.TextField{Name: "site_url"},
+		&core.TextField{Name: "timezone"},
 		&core.TextField{Name: "fitbit_client_id"},
 		&core.TextField{Name: "fitbit_client_secret"},
 		&core.TextField{Name: "fitbit_access_token"},
 		&core.TextField{Name: "fitbit_refresh_token"},
 		&core.DateField{Name: "fitbit_token_expiry"},
+		&core.DateField{Name: "fitbit_last_sync"},
 		&core.BoolField{Name: "notifications_enabled"},
 	)
 	return app.Save(c)
+}
+
+// ensureSettingsFields adds any missing fields to an existing settings collection.
+func ensureSettingsFields(app core.App, c *core.Collection) error {
+	newFields := []core.Field{
+		&core.DateField{Name: "fitbit_last_sync"},
+		&core.TextField{Name: "timezone"},
+	}
+
+	changed := false
+	for _, f := range newFields {
+		if c.Fields.GetByName(f.GetName()) == nil {
+			c.Fields.Add(f)
+			changed = true
+		}
+	}
+
+	if changed {
+		return app.Save(c)
+	}
+	return nil
 }

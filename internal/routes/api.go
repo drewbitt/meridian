@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,12 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/drewbitt/meridian/internal/engine"
 	"github.com/drewbitt/meridian/internal/ingest"
+	"github.com/drewbitt/meridian/internal/services"
 	"github.com/pocketbase/pocketbase/core"
 )
 
 const maxUploadSize = 100 << 20
+
+var errUnknownSource = errors.New("unknown import source")
 
 func importFileToDisk(r io.Reader, filename string, parse func(string) ([]ingest.SleepRecord, error)) ([]ingest.SleepRecord, error) {
 	safeName := filepath.Base(filename)
@@ -36,8 +39,30 @@ func importFileToDisk(r io.Reader, filename string, parse func(string) ([]ingest
 	return parse(tmpPath)
 }
 
+func parseImportSource(r io.Reader, filename, source string) ([]ingest.SleepRecord, error) {
+	switch source {
+	case "healthconnect":
+		return ingest.ParseHealthConnect(io.LimitReader(r, maxUploadSize))
+	case "applehealth":
+		return importFileToDisk(io.LimitReader(r, maxUploadSize), filename, func(tmpPath string) ([]ingest.SleepRecord, error) {
+			if strings.HasSuffix(strings.ToLower(filename), ".zip") {
+				return ingest.ParseAppleHealthZip(tmpPath)
+			}
+			f, ferr := os.Open(tmpPath) //nolint:gosec // tmpPath from our own CreateTemp
+			if ferr != nil {
+				return nil, ferr
+			}
+			defer f.Close()
+			return ingest.ParseAppleHealthXML(f)
+		})
+	case "gadgetbridge":
+		return importFileToDisk(io.LimitReader(r, maxUploadSize), filename, ingest.ParseGadgetbridge)
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnknownSource, source)
+	}
+}
+
 func registerAPIRoutes(se *core.ServeEvent, app core.App) {
-	// Get today's energy schedule.
 	se.Router.GET("/api/schedule", func(re *core.RequestEvent) error {
 		userID, err := authedUserID(re)
 		if err != nil {
@@ -55,7 +80,6 @@ func registerAPIRoutes(se *core.ServeEvent, app core.App) {
 		})
 	})
 
-	// Import health data file.
 	se.Router.POST("/api/import", func(re *core.RequestEvent) error {
 		userID, err := authedUserID(re)
 		if err != nil {
@@ -75,67 +99,14 @@ func registerAPIRoutes(se *core.ServeEvent, app core.App) {
 		}
 		defer file.Close()
 
-		var records []ingest.SleepRecord
-
-		switch source {
-		case "healthconnect":
-			records, err = ingest.ParseHealthConnect(io.LimitReader(file, maxUploadSize))
-		case "applehealth":
-			records, err = importFileToDisk(io.LimitReader(file, maxUploadSize), header.Filename, func(tmpPath string) ([]ingest.SleepRecord, error) {
-				if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
-					return ingest.ParseAppleHealthZip(tmpPath)
-				}
-				f, ferr := os.Open(tmpPath) //nolint:gosec // tmpPath from our own CreateTemp
-				if ferr != nil {
-					return nil, ferr
-				}
-				defer f.Close()
-				return ingest.ParseAppleHealthXML(f)
-			})
-		case "gadgetbridge":
-			records, err = importFileToDisk(io.LimitReader(file, maxUploadSize), header.Filename, ingest.ParseGadgetbridge)
-		default:
-			return re.BadRequestError("Unknown source: "+source, nil)
-		}
-
+		records, err := parseImportSource(file, header.Filename, source)
 		if err != nil {
 			return re.BadRequestError("Failed to parse file", err)
 		}
 
-		// Upsert records.
-		collection, err := app.FindCollectionByNameOrId("sleep_records")
-		if err != nil {
-			return re.InternalServerError("", err)
-		}
-
 		imported := 0
 		for _, rec := range records {
-			// Check for existing record with same date and source.
-			dateStr := rec.Date.Format("2006-01-02")
-			existing, _ := app.FindFirstRecordByFilter("sleep_records",
-				"user = {:user} && date = {:date} && source = {:source}",
-				map[string]any{"user": userID, "date": dateStr, "source": rec.Source},
-			)
-
-			var record *core.Record
-			if existing != nil {
-				record = existing
-			} else {
-				record = core.NewRecord(collection)
-				record.Set("user", userID)
-			}
-
-			record.Set("date", rec.Date)
-			record.Set("sleep_start", rec.SleepStart)
-			record.Set("sleep_end", rec.SleepEnd)
-			record.Set("source", rec.Source)
-			record.Set("duration_minutes", rec.DurationMinutes)
-			record.Set("deep_minutes", rec.DeepMinutes)
-			record.Set("rem_minutes", rec.REMMinutes)
-			record.Set("light_minutes", rec.LightMinutes)
-			record.Set("awake_minutes", rec.AwakeMinutes)
-
-			if err := app.Save(record); err == nil {
+			if _, err := services.UpsertSleepRecord(app, userID, rec); err == nil {
 				imported++
 			}
 		}
@@ -146,15 +117,15 @@ func registerAPIRoutes(se *core.ServeEvent, app core.App) {
 		})
 	})
 
-	// Get sleep history.
 	se.Router.GET("/api/sleep", func(re *core.RequestEvent) error {
 		userID, err := authedUserID(re)
 		if err != nil {
 			return re.UnauthorizedError("", nil)
 		}
 
+		loc := services.UserLocation(app, userID)
 		days := 14
-		since := time.Now().AddDate(0, 0, -days).Format("2006-01-02 00:00:00")
+		since := time.Now().In(loc).AddDate(0, 0, -days).Format("2006-01-02 00:00:00")
 		records, err := app.FindRecordsByFilter(
 			"sleep_records",
 			"user = {:user} && date >= {:since}",
@@ -177,22 +148,7 @@ func registerAPIRoutes(se *core.ServeEvent, app core.App) {
 			})
 		}
 
-		sleepNeed := 8.0
-		settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
-		if err == nil {
-			if sn := settings.GetFloat("sleep_need_hours"); sn > 0 {
-				sleepNeed = sn
-			}
-		}
-
-		var engineRecords []engine.SleepRecord
-		for _, r := range records {
-			engineRecords = append(engineRecords, engine.SleepRecord{
-				Date:            r.GetDateTime("date").Time(),
-				DurationMinutes: r.GetInt("duration_minutes"),
-			})
-		}
-		debt := engine.CalculateSleepDebt(engineRecords, sleepNeed, time.Now())
+		debt := services.ComputeUserDebt(app, userID)
 
 		return re.JSON(http.StatusOK, map[string]any{
 			"records":    result,

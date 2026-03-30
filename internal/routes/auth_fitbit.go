@@ -5,12 +5,18 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/drewbitt/meridian/internal/services"
 	"github.com/pocketbase/pocketbase/core"
 	"golang.org/x/oauth2"
 )
@@ -19,6 +25,7 @@ var (
 	errMalformedState   = errors.New("malformed state")
 	errInvalidSig       = errors.New("invalid state signature")
 	errMalformedPayload = errors.New("malformed state payload")
+	errExpiredState     = errors.New("state expired")
 )
 
 func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
@@ -37,10 +44,12 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 		if err != nil {
 			return re.InternalServerError("Failed to generate nonce", err)
 		}
-		state := signState(app, userID, nonce)
 
-		url := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline)
-		return re.Redirect(http.StatusTemporaryRedirect, url)
+		verifier := oauth2.GenerateVerifier()
+		state := signState(app, userID, nonce, verifier)
+
+		authURL := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
+		return re.Redirect(http.StatusTemporaryRedirect, authURL)
 	})
 
 	se.Router.GET("/auth/fitbit/callback", func(re *core.RequestEvent) error {
@@ -51,7 +60,7 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 			return re.BadRequestError("Missing code or state", nil)
 		}
 
-		userID, err := verifyState(app, state)
+		userID, verifier, err := verifyState(app, state)
 		if err != nil {
 			return re.BadRequestError("Invalid state", err)
 		}
@@ -61,7 +70,9 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 			return re.Redirect(http.StatusSeeOther, "/settings?fitbit_error=not_configured")
 		}
 
-		token, err := cfg.Exchange(context.Background(), code)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		token, err := cfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 		if err != nil {
 			return re.InternalServerError("Token exchange failed", err)
 		}
@@ -84,7 +95,80 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 			return re.InternalServerError("Failed to save tokens", err)
 		}
 
+		// Backfill last 30 days in the background.
+		// Re-fetch the settings record in the goroutine to avoid racing
+		// with the user editing settings concurrently.
+		go func(uid string) {
+			s, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": uid})
+			if err != nil {
+				slog.Error("fitbit backfill: could not load settings", "user_id", uid, "error", err)
+				return
+			}
+			end := time.Now()
+			start := end.AddDate(0, 0, -30)
+			if err := services.SyncFitbitUser(app, s, start, end); err != nil {
+				slog.Error("fitbit backfill failed", "user_id", uid, "error", err)
+			}
+		}(userID)
+
 		return re.Redirect(http.StatusSeeOther, "/settings?fitbit=connected")
+	})
+
+	se.Router.POST("/auth/fitbit/disconnect", func(re *core.RequestEvent) error {
+		userID, err := authedUserID(re)
+		if err != nil {
+			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/settings")
+		}
+
+		settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
+		if err != nil {
+			return re.Redirect(http.StatusSeeOther, "/settings")
+		}
+
+		// Best-effort revocation at Fitbit.
+		refreshToken := settings.GetString("fitbit_refresh_token")
+		clientID := settings.GetString("fitbit_client_id")
+		clientSecret := settings.GetString("fitbit_client_secret")
+		if refreshToken != "" && clientID != "" && clientSecret != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = revokeFitbitToken(ctx, clientID, clientSecret, refreshToken)
+		}
+
+		settings.Set("fitbit_access_token", "")
+		settings.Set("fitbit_refresh_token", "")
+		settings.Set("fitbit_token_expiry", nil)
+
+		if err := app.Save(settings); err != nil {
+			return re.InternalServerError("Failed to clear tokens", err)
+		}
+
+		return re.Redirect(http.StatusSeeOther, "/settings?fitbit=disconnected")
+	})
+
+	se.Router.POST("/auth/fitbit/sync", func(re *core.RequestEvent) error {
+		userID, err := authedUserID(re)
+		if err != nil {
+			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/settings")
+		}
+
+		settings, err := app.FindFirstRecordByFilter("settings", "user = {:user} && fitbit_access_token != ''", map[string]any{"user": userID})
+		if err != nil {
+			return re.Redirect(http.StatusSeeOther, "/settings?fitbit_error=not_configured")
+		}
+
+		end := time.Now()
+		start := end.AddDate(0, 0, -1)
+		if err := services.SyncFitbitUser(app, settings, start, end); err != nil {
+			slog.Error("manual fitbit sync failed", "user_id", userID, "error", err)
+			return re.Redirect(http.StatusSeeOther, "/settings?fitbit_error=sync_failed")
+		}
+
+		if err := services.UpdateUserSchedule(app, userID); err != nil {
+			slog.Error("schedule update after manual sync failed", "user_id", userID, "error", err)
+		}
+
+		return re.Redirect(http.StatusSeeOther, "/settings?fitbit=synced")
 	})
 }
 
@@ -114,7 +198,7 @@ func buildFitbitConfig(app core.App, settings *core.Record) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Scopes:       []string{"sleep"},
+		Scopes:       []string{"sleep", "profile"},
 		Endpoint: oauth2.Endpoint{ //nolint:gosec // OAuth URLs, not credentials
 			AuthURL:  "https://www.fitbit.com/oauth2/authorize",
 			TokenURL: "https://api.fitbit.com/oauth2/token",
@@ -132,27 +216,32 @@ func generateNonce() (string, error) {
 }
 
 func oauthSecret(app core.App) []byte {
-	return []byte(app.Settings().Meta.AppURL + ":" + app.Settings().Meta.SenderAddress + ":" + app.Settings().Meta.SenderName)
+	// Derive HMAC key from install-specific values that are not publicly visible.
+	// DataDir is unique per installation; the SMTP password (if set) adds entropy.
+	h := sha256.Sum256([]byte(app.DataDir() + ":" + app.Settings().SMTP.Password + ":" + app.Settings().Meta.AppURL))
+	return h[:]
 }
 
-func signState(app core.App, userID, nonce string) string {
-	payload := userID + ":" + nonce
+const stateMaxAge = 10 * time.Minute
+
+// signState produces an HMAC-signed state string encoding the user ID, nonce,
+// PKCE verifier, and timestamp: "userID:nonce:verifier:timestamp:signature".
+func signState(app core.App, userID, nonce, verifier string) string {
+	ts := fmt.Sprintf("%d", time.Now().Unix())
+	payload := userID + ":" + nonce + ":" + verifier + ":" + ts
 	mac := hmac.New(sha256.New, oauthSecret(app))
 	mac.Write([]byte(payload))
 	sig := hex.EncodeToString(mac.Sum(nil))
 	return payload + ":" + sig
 }
 
-func verifyState(app core.App, state string) (string, error) {
-	lastColon := -1
-	for i := len(state) - 1; i >= 0; i-- {
-		if state[i] == ':' {
-			lastColon = i
-			break
-		}
-	}
+// verifyState validates the HMAC signature and expiry, returning the user ID
+// and PKCE verifier from the state string.
+func verifyState(app core.App, state string) (userID, verifier string, err error) {
+	// Split off the trailing signature (last colon-delimited segment).
+	lastColon := strings.LastIndex(state, ":")
 	if lastColon <= 0 {
-		return "", errMalformedState
+		return "", "", errMalformedState
 	}
 	payload := state[:lastColon]
 	sig := state[lastColon+1:]
@@ -162,19 +251,47 @@ func verifyState(app core.App, state string) (string, error) {
 	expected := hex.EncodeToString(mac.Sum(nil))
 
 	if !hmac.Equal([]byte(sig), []byte(expected)) {
-		return "", errInvalidSig
+		return "", "", errInvalidSig
 	}
 
-	firstColon := -1
-	for i, c := range payload {
-		if c == ':' {
-			firstColon = i
-			break
-		}
-	}
-	if firstColon <= 0 {
-		return "", errMalformedPayload
+	// Payload format: "userID:nonce:verifier:timestamp"
+	parts := strings.SplitN(payload, ":", 4)
+	if len(parts) != 4 || parts[0] == "" || parts[2] == "" {
+		return "", "", errMalformedPayload
 	}
 
-	return payload[:firstColon], nil
+	// Check expiry.
+	ts, err := strconv.ParseInt(parts[3], 10, 64)
+	if err != nil {
+		return "", "", errMalformedPayload
+	}
+	if time.Since(time.Unix(ts, 0)) > stateMaxAge {
+		return "", "", errExpiredState
+	}
+
+	return parts[0], parts[2], nil
 }
+
+// revokeFitbitToken revokes the given token at Fitbit's revocation endpoint.
+func revokeFitbitToken(ctx context.Context, clientID, clientSecret, token string) error {
+	body := url.Values{"token": {token}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.fitbit.com/oauth2/revoke", strings.NewReader(body.Encode()))
+	if err != nil {
+		return fmt.Errorf("create revoke request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(clientID+":"+clientSecret)))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("fitbit revoke request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("fitbit revoke returned %d: %w", resp.StatusCode, errFitbitRevoke)
+	}
+	return nil
+}
+
+var errFitbitRevoke = errors.New("fitbit token revocation failed")

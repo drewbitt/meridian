@@ -2,8 +2,9 @@ package engine
 
 import (
 	"math"
-	"sort"
 	"time"
+
+	"gonum.org/v1/gonum/floats"
 )
 
 // DebtCategory classifies sleep debt severity.
@@ -32,15 +33,18 @@ const debtWindowDays = 14
 // referenceDate is the date to calculate debt for (typically today).
 func CalculateSleepDebt(records []SleepRecord, sleepNeedHours float64, referenceDate time.Time) SleepDebt {
 	// Build a map of date → total sleep hours for the past 14 nights.
-	// "Night i=0" is the most recent night (last night relative to referenceDate).
+	// Use calendar date arithmetic (Year/Month/Day) instead of
+	// Truncate(24h) which rounds to UTC midnight and misaligns for
+	// non-UTC timezones.
 	dailySleep := make(map[int]float64)
 
+	refY, refM, refD := referenceDate.Date()
+	refDate := time.Date(refY, refM, refD, 0, 0, 0, 0, referenceDate.Location())
+
 	for _, r := range records {
-		// Which night does this record belong to?
-		// A sleep record's "night" is determined by its date field.
-		nightDate := r.Date.Truncate(24 * time.Hour)
-		refDate := referenceDate.Truncate(24 * time.Hour)
-		daysAgo := int(refDate.Sub(nightDate).Hours() / 24)
+		rY, rM, rD := r.Date.Date()
+		nightDate := time.Date(rY, rM, rD, 0, 0, 0, 0, referenceDate.Location())
+		daysAgo := int(refDate.Sub(nightDate).Hours()/24 + 0.5) // round to nearest day
 		if daysAgo >= 0 && daysAgo < debtWindowDays {
 			dailySleep[daysAgo] += float64(r.DurationMinutes) / 60.0
 		}
@@ -56,7 +60,7 @@ func CalculateSleepDebt(records []SleepRecord, sleepNeedHours float64, reference
 	for i := range debtWindowDays {
 		actual, hasData := dailySleep[i]
 		if !hasData {
-			continue // skip nights with no data
+			continue // skip nights with no data — only weight days we know about
 		}
 		deficit := math.Max(0, sleepNeedHours-actual)
 		totalDeficit += deficit * weights[i]
@@ -84,20 +88,15 @@ func recencyWeights(n int) []float64 {
 	weights := make([]float64, n)
 	weights[0] = 0.15
 
-	// Distribute remaining 0.85 with exponential decay over days 1..n-1.
 	if n > 1 {
 		remaining := 0.85
-		// Use decay factor so that each subsequent night has ~70% the weight of the prior.
 		decayFactor := 0.7
 		rawWeights := make([]float64, n-1)
-		var rawSum float64
-		for i := 0; i < n-1; i++ {
+		for i := range rawWeights {
 			rawWeights[i] = math.Pow(decayFactor, float64(i))
-			rawSum += rawWeights[i]
 		}
-		for i := 0; i < n-1; i++ {
-			weights[i+1] = remaining * rawWeights[i] / rawSum
-		}
+		floats.Scale(remaining/floats.Sum(rawWeights), rawWeights)
+		copy(weights[1:], rawWeights)
 	}
 
 	return weights
@@ -116,14 +115,4 @@ func categorize(hours float64) DebtCategory {
 	default:
 		return DebtSevere
 	}
-}
-
-// SleepRecordsByDate returns records sorted by date ascending.
-func SleepRecordsByDate(records []SleepRecord) []SleepRecord {
-	sorted := make([]SleepRecord, len(records))
-	copy(sorted, records)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Date.Before(sorted[j].Date)
-	})
-	return sorted
 }

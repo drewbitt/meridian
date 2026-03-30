@@ -1,20 +1,16 @@
 package main
 
 import (
-	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/drewbitt/meridian/assets"
-	"github.com/drewbitt/meridian/internal/ingest"
 	"github.com/drewbitt/meridian/internal/routes"
 	"github.com/drewbitt/meridian/internal/schema"
 	"github.com/drewbitt/meridian/internal/services"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
-	"golang.org/x/oauth2"
 )
 
 func main() {
@@ -65,12 +61,14 @@ func main() {
 		},
 	})
 
-	app.Cron().MustAdd("morning-schedule", "0 8 * * *", func() {
-		runMorningJobForAllUsers(app)
+	// Cron uses the server timezone (set via TZ env var).
+	// Fitbit sync runs first so the morning job has fresh data at 8 AM.
+	app.Cron().MustAdd("fitbit-sync", "*/30 * * * *", func() {
+		syncFitbitForAllUsers(app)
 	})
 
-	app.Cron().MustAdd("fitbit-sync", "0 */4 * * *", func() {
-		syncFitbitForAllUsers(app)
+	app.Cron().MustAdd("morning-schedule", "0 8 * * *", func() {
+		runMorningJobForAllUsers(app)
 	})
 
 	if err := app.Start(); err != nil {
@@ -99,94 +97,15 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 	}
 
 	for _, s := range settings {
-		userID := s.GetString("user")
-
-		// Build per-user OAuth config from their stored credentials.
-		clientID := s.GetString("fitbit_client_id")
-		clientSecret := s.GetString("fitbit_client_secret")
-		if clientID == "" || clientSecret == "" {
-			slog.Warn("fitbit credentials missing, skipping sync", "user_id", userID)
+		loc := services.LocationFromSettings(s)
+		now := time.Now().In(loc)
+		start := now.AddDate(0, 0, -1)
+		if err := services.SyncFitbitUser(app, s, start, now); err != nil {
+			slog.Error("fitbit sync failed", "user_id", s.GetString("user"), "error", err)
 			continue
 		}
-		siteURL := s.GetString("site_url")
-		if siteURL == "" {
-			siteURL = app.Settings().Meta.AppURL
-		}
-		cfg := ingest.NewFitbitOAuthConfig(clientID, clientSecret, strings.TrimRight(siteURL, "/")+"/auth/fitbit/callback")
-
-		token := &oauth2.Token{
-			AccessToken:  s.GetString("fitbit_access_token"),
-			RefreshToken: s.GetString("fitbit_refresh_token"),
-			Expiry:       s.GetDateTime("fitbit_token_expiry").Time(),
-		}
-
-		// Refresh token if expired.
-		if token.Expiry.Before(time.Now()) {
-			newToken, err := ingest.RefreshFitbitToken(context.Background(), cfg, token)
-			if err != nil {
-				slog.Error("fitbit token refresh failed", "user_id", userID, "error", err)
-				continue
-			}
-			s.Set("fitbit_access_token", newToken.AccessToken)
-			s.Set("fitbit_refresh_token", newToken.RefreshToken)
-			s.Set("fitbit_token_expiry", newToken.Expiry)
-			if err := app.Save(s); err != nil {
-				slog.Error("failed to save fitbit token", "user_id", userID, "error", err)
-				continue
-			}
-			token = newToken
-		}
-
-		// Fetch user's timezone from Fitbit profile — their API returns
-		// sleep times in this timezone without offsets.
-		loc, err := ingest.FetchFitbitTimezone(context.Background(), cfg, token)
-		if err != nil {
-			slog.Warn("could not fetch fitbit timezone, falling back to UTC", "user_id", userID, "error", err)
-			loc = time.UTC
-		}
-
-		// Fetch yesterday's and today's sleep.
-		for _, date := range []time.Time{time.Now().AddDate(0, 0, -1), time.Now()} {
-			records, err := ingest.FetchFitbitSleep(context.Background(), cfg, token, date, loc)
-			if err != nil {
-				slog.Error("fitbit sync failed", "user_id", userID, "error", err)
-				continue
-			}
-
-			collection, err := app.FindCollectionByNameOrId("sleep_records")
-			if err != nil {
-				slog.Error("sleep_records collection not found", "error", err)
-				continue
-			}
-			for _, rec := range records {
-				dateStr := rec.Date.Format("2006-01-02")
-				existing, _ := app.FindFirstRecordByFilter("sleep_records",
-					"user = {:user} && date = {:date} && source = {:source}",
-					map[string]any{"user": userID, "date": dateStr, "source": "fitbit"},
-				)
-
-				var record *core.Record
-				if existing != nil {
-					record = existing
-				} else {
-					record = core.NewRecord(collection)
-					record.Set("user", userID)
-				}
-				record.Set("date", rec.Date)
-				record.Set("sleep_start", rec.SleepStart)
-				record.Set("sleep_end", rec.SleepEnd)
-				record.Set("source", "fitbit")
-				record.Set("duration_minutes", rec.DurationMinutes)
-				record.Set("deep_minutes", rec.DeepMinutes)
-				record.Set("rem_minutes", rec.REMMinutes)
-				record.Set("light_minutes", rec.LightMinutes)
-				record.Set("awake_minutes", rec.AwakeMinutes)
-				if err := app.Save(record); err != nil {
-					slog.Error("failed to save fitbit record", "user_id", userID, "error", err)
-					continue
-				}
-			}
-
+		if err := services.UpdateUserSchedule(app, s.GetString("user")); err != nil {
+			slog.Error("schedule update after sync failed", "user_id", s.GetString("user"), "error", err)
 		}
 	}
 }

@@ -3,10 +3,11 @@ package templates
 import (
 	"fmt"
 	"strings"
+	"time"
 	"github.com/pocketbase/pocketbase/core"
 )
 
-templ Settings(settings *core.Record, saved bool, importedCount string, importError string, fitbitError string, fitbitConnected bool) {
+templ Settings(settings *core.Record, saved bool, importedCount string, importError string, fitbitError string, fitbitStatus string) {
 	@Layout("Settings") {
 		<div class="mx-auto max-w-lg space-y-6">
 			if saved {
@@ -14,9 +15,14 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 					Settings saved
 				</div>
 			}
-			if fitbitConnected {
+			if fitbitStatus == "connected" {
 				<div id="toast-fitbit" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
-					Fitbit connected successfully
+					Fitbit connected — syncing last 30 days
+				</div>
+			}
+			if fitbitStatus == "disconnected" {
+				<div id="toast-fitbit-disc" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Fitbit disconnected
 				</div>
 			}
 			if importedCount != "" {
@@ -29,9 +35,19 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 					{ importError }
 				</div>
 			}
+			if fitbitStatus == "synced" {
+				<div id="toast-fitbit-sync" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Fitbit sync complete
+				</div>
+			}
 			if fitbitError == "not_configured" {
 				<div id="toast-fitbit-error" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
 					Enter your Fitbit Client ID and Secret below, then save before connecting.
+				</div>
+			}
+			if fitbitError == "sync_failed" {
+				<div id="toast-fitbit-sync-err" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Fitbit sync failed — check your connection.
 				</div>
 			}
 
@@ -55,9 +71,13 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 					</div>
 
 					<div>
-						<label for="ntfy_topic" class="block text-sm font-medium text-gray-400 mb-1.5">
-							ntfy Topic
-						</label>
+						<div class="flex items-baseline justify-between mb-1.5">
+							<label for="ntfy_topic" class="text-sm font-medium text-gray-400">ntfy Topic</label>
+							<span class="flex items-center gap-2">
+								<span id="test-notif-result" class="text-xs"></span>
+								<button type="button" id="test-notif-btn" class="text-xs font-medium text-dusk hover:text-dawn transition-colors disabled:opacity-50" onclick="sendTestNotif(this)">Send test</button>
+							</span>
+						</div>
 						<input
 							type="text"
 							id="ntfy_topic"
@@ -110,7 +130,22 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							value={ getSettingStr(settings, "site_url") }
 							class="input-field"
 						/>
-						<p class="mt-1 text-xs text-gray-600">Enables tap-to-open in notifications</p>
+						<p class="mt-1 text-xs text-gray-600">Used for Fitbit OAuth callback, notification links, and redirect URLs</p>
+					</div>
+
+					<div>
+						<label for="timezone" class="block text-sm font-medium text-gray-400 mb-1.5">
+							Timezone
+						</label>
+						<input
+							type="text"
+							id="timezone"
+							name="timezone"
+							placeholder="America/New_York"
+							value={ getSettingStr(settings, "timezone") }
+							class="input-field"
+						/>
+						<p class="mt-1 text-xs text-gray-600">IANA timezone (e.g. America/New_York). Auto-detected from browser if empty.</p>
 					</div>
 
 					<div>
@@ -144,7 +179,8 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							<a href="https://dev.fitbit.com/apps/new" target="_blank" class="text-dusk hover:text-dawn transition-colors">dev.fitbit.com/apps/new</a>.
 							Set OAuth 2.0 Application Type to <strong class="text-gray-500">Personal</strong>,
 							Callback URL to <code class="text-gray-500 font-mono">{ callbackURL(settings) }</code>,
-							and select the <strong class="text-gray-500">Read</strong> access type.
+							and Default Access Type to <strong class="text-gray-500">Read-Only</strong>.
+							Other URL fields can be placeholders for Personal apps.
 						</p>
 					</div>
 
@@ -179,7 +215,19 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							<div class="text-xs text-gray-600">Auto-sync sleep data via OAuth</div>
 						</div>
 						if hasFitbitToken(settings) {
-							<span class="text-xs font-mono font-medium text-noon bg-noon-muted px-2 py-1 rounded-md">Connected</span>
+							<div class="flex items-center gap-2">
+								<span class="text-xs font-mono font-medium text-noon bg-noon-muted px-2 py-1 rounded-md">Connected</span>
+								<form method="POST" action="/auth/fitbit/sync" class="inline">
+									<button type="submit" class="text-xs text-dusk hover:text-dawn transition-colors">
+										Sync Now
+									</button>
+								</form>
+								<form method="POST" action="/auth/fitbit/disconnect" class="inline">
+									<button type="submit" class="text-xs text-gray-500 hover:text-dawn transition-colors">
+										Disconnect
+									</button>
+								</form>
+							</div>
 						} else {
 							<a
 								href="/auth/fitbit"
@@ -189,6 +237,14 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							</a>
 						}
 					</div>
+					if hasFitbitLastSync(settings) {
+						<div class="text-xs text-gray-600 -mt-2">
+							Last synced { formatLastSyncRelative(settings) }
+							if formatLastSyncAbsolute(settings) != "" {
+								(<local-time datetime={ formatLastSyncAbsolute(settings) }></local-time>)
+							}
+						</div>
+					}
 
 					<div class="border-t border-night-border pt-4">
 						<div class="text-sm font-medium text-gray-300 mb-3">File Import</div>
@@ -223,6 +279,20 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 				</div>
 			</div>
 		</div>
+		<script>
+			function sendTestNotif(btn) {
+				var topic = document.getElementById('ntfy_topic').value.trim();
+				var result = document.getElementById('test-notif-result');
+				if (!topic) { result.textContent = 'enter a topic first'; result.className = 'text-xs text-dawn'; return; }
+				btn.disabled = true; result.textContent = '';
+				var body = new URLSearchParams({ntfy_topic: topic, ntfy_server: document.getElementById('ntfy_server').value.trim(), ntfy_access_token: document.getElementById('ntfy_access_token').value.trim()});
+				fetch('/settings/test-notification', {method:'POST', body:body})
+					.then(function(r){return r.json()})
+					.then(function(d){result.textContent=d.error||'sent!';result.className='text-xs '+(d.error?'text-dawn':'text-noon');if(!d.error)setTimeout(function(){result.textContent=''},3000)})
+					.catch(function(){result.textContent='failed';result.className='text-xs text-dawn'})
+					.finally(function(){btn.disabled=false});
+			}
+		</script>
 	}
 }
 
@@ -256,6 +326,50 @@ func hasFitbitToken(settings *core.Record) bool {
 		return false
 	}
 	return settings.GetString("fitbit_access_token") != ""
+}
+
+func hasFitbitLastSync(settings *core.Record) bool {
+	if settings == nil {
+		return false
+	}
+	return !settings.GetDateTime("fitbit_last_sync").Time().IsZero()
+}
+
+func formatLastSyncRelative(settings *core.Record) string {
+	t := settings.GetDateTime("fitbit_last_sync").Time()
+	elapsed := time.Since(t)
+	switch {
+	case elapsed < time.Minute:
+		return "just now"
+	case elapsed < time.Hour:
+		m := int(elapsed.Minutes())
+		if m == 1 {
+			return "1 minute ago"
+		}
+		return fmt.Sprintf("%d minutes ago", m)
+	case elapsed < 24*time.Hour:
+		h := int(elapsed.Hours())
+		if h == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", h)
+	default:
+		d := int(elapsed.Hours() / 24)
+		if d == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", d)
+	}
+}
+
+// formatLastSyncAbsolute returns an RFC3339 UTC string for the <local-time>
+// element when the sync was more than 24h ago. Returns "" for recent syncs.
+func formatLastSyncAbsolute(settings *core.Record) string {
+	t := settings.GetDateTime("fitbit_last_sync").Time()
+	if time.Since(t) < 24*time.Hour {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func callbackURL(settings *core.Record) string {

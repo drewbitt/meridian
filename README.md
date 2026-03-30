@@ -83,15 +83,27 @@ Data lives in `/pb_data` (SQLite database + uploads). Back up this directory.
 | Apple Health | ZIP/XML upload | Manual |
 | Gadgetbridge | SQLite upload | Manual |
 
+## Fitbit Setup
+
+1. Create a Personal app at [dev.fitbit.com/apps/new](https://dev.fitbit.com/apps/new)
+2. Callback URL: `https://your-domain/auth/fitbit/callback` (or `http://localhost:8090/auth/fitbit/callback` locally)
+3. Default Access Type: Read-Only (other URL fields can be placeholders)
+4. Copy Client ID and Client Secret into Settings, save, click Connect
+
+Backfills the last 30 days on first connect.
+
+> Fitbit's Web API is [scheduled for deprecation in September 2026](https://dev.fitbit.com/build/reference/web-api/).
+
 ## Configuration
 
 | Variable | Default | Description |
 |---|---|---|
 | `ALLOW_REGISTRATION` | `true` | Set to `false` (or `no`, `off`, `0`) to disable new account creation |
-| `TZ` | `UTC` | Timezone for cron jobs (e.g. `America/New_York`). Affects notification timing. |
+| `TZ` | `UTC` | Timezone for cron jobs (e.g. `America/New_York`) |
 
 Per-user settings are on the Settings page:
 
+- Timezone (e.g. `America/New_York`) — auto-detected from Fitbit or browser, falls back to server `TZ`
 - Sleep need (default 8 hours)
 - ntfy server, topic, and access token
 - Fitbit OAuth2 credentials

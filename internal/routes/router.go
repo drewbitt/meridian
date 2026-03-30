@@ -6,38 +6,53 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/drewbitt/meridian/internal/services"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
 )
 
-// userLocationFromForm reads the IANA timezone name from a hidden "tz" form
-// field first, then falls back to the cookie. Preferred for form submissions
-// where the field is always present, avoiding stale/missing cookie issues.
-func userLocationFromForm(re *core.RequestEvent) *time.Location {
+// resolveUserLocation returns the best available timezone for the current
+// request: user settings → browser cookie → time.Local (server TZ).
+func resolveUserLocation(app core.App, re *core.RequestEvent) *time.Location {
+	if userID, err := authedUserID(re); err == nil {
+		loc := services.UserLocation(app, userID)
+		if loc != time.Local {
+			return loc
+		}
+	}
+	if loc := locationFromCookie(re); loc != nil {
+		return loc
+	}
+	return time.Local
+}
+
+// userLocationFromForm reads the IANA timezone from a hidden "tz" form field
+// first (most reliable for form submissions), then falls back through the
+// standard chain: user settings → browser cookie → time.Local.
+func userLocationFromForm(app core.App, re *core.RequestEvent) *time.Location {
 	if tz := re.Request.FormValue("tz"); tz != "" {
 		if loc, err := time.LoadLocation(tz); err == nil {
 			return loc
 		}
 	}
-	return userLocation(re)
+	return resolveUserLocation(app, re)
 }
 
-// userLocation reads the IANA timezone name from the browser-set "tz" cookie
-// and returns the corresponding *time.Location. Falls back to time.UTC if the
-// cookie is absent or names an unrecognised timezone.
-func userLocation(re *core.RequestEvent) *time.Location {
+// locationFromCookie reads the IANA timezone from the browser "tz" cookie.
+// Returns nil if absent or invalid.
+func locationFromCookie(re *core.RequestEvent) *time.Location {
 	cookie, err := re.Request.Cookie("tz")
 	if err != nil {
-		return time.UTC
+		return nil
 	}
 	name, err := url.QueryUnescape(cookie.Value)
 	if err != nil {
-		return time.UTC
+		return nil
 	}
 	loc, err := time.LoadLocation(name)
 	if err != nil {
-		return time.UTC
+		return nil
 	}
 	return loc
 }
