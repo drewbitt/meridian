@@ -81,6 +81,7 @@ func Register(app *pocketbase.PocketBase) {
 			registerDashboardRoutes(se, app)
 			registerSleepRoutes(se, app)
 			registerSettingsRoutes(se, app)
+			registerHabitRoutes(se, app)
 			registerFitbitAuthRoutes(se, app)
 			registerAPIRoutes(se, app)
 			return se.Next()

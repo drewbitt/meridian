@@ -15,7 +15,7 @@ func TestClassifyZones_BasicSchedule(t *testing.T) {
 	predStart := sleepEnd.Add(-1 * time.Hour) // Start from 6am to include pre-wake
 	predEnd := time.Date(2024, 1, 16, 23, 0, 0, 0, loc)
 
-	points := PredictEnergy(periods, predStart, predEnd)
+	points := PredictEnergy(DefaultParams(), periods, predStart, predEnd)
 	schedule := ClassifyZones(points, sleepEnd)
 
 	// Should have points.
@@ -60,7 +60,7 @@ func TestClassifyZones_BestFocusNeverZero(t *testing.T) {
 	wakeTime := time.Date(2026, 3, 29, 8, 4, 0, 0, loc)
 
 	periods := []SleepPeriod{{Start: sleepStart, End: wakeTime}}
-	points := PredictEnergy(periods, wakeTime, wakeTime.Add(24*time.Hour))
+	points := PredictEnergy(DefaultParams(), periods, wakeTime, wakeTime.Add(24*time.Hour))
 	schedule := ClassifyZones(points, wakeTime)
 
 	if schedule.BestFocusStart.IsZero() {
@@ -90,7 +90,7 @@ func TestClassifyZones_DerivedTimes(t *testing.T) {
 
 	sleepStart := time.Date(2024, 1, 15, 23, 0, 0, 0, loc)
 	periods := []SleepPeriod{{Start: sleepStart, End: wakeTime}}
-	points := PredictEnergy(periods, wakeTime, wakeTime.Add(20*time.Hour))
+	points := PredictEnergy(DefaultParams(), periods, wakeTime, wakeTime.Add(20*time.Hour))
 	schedule := ClassifyZones(points, wakeTime)
 
 	// BestFocusStart is derived from the model's actual alertness peak and

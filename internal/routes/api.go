@@ -3,6 +3,7 @@ package routes
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -102,6 +103,11 @@ func registerAPIRoutes(se *core.ServeEvent, app core.App) {
 		imported, total, err := importAndUpsert(app, userID, file, header.Filename, source)
 		if err != nil {
 			return re.BadRequestError("Failed to parse file", err)
+		}
+
+		// Recompute schedule with the new sleep data.
+		if _, err := services.RefreshScheduleIfNeeded(app, userID); err != nil {
+			slog.Error("failed to refresh schedule after import", "user_id", userID, "error", err)
 		}
 
 		return re.JSON(http.StatusOK, map[string]any{

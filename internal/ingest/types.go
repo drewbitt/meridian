@@ -32,7 +32,15 @@ func DateOnly(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
 }
 
-func sleepNightDate(t time.Time) time.Time {
+// SleepNightDate returns the "night of" date for a sleep timestamp.
+// Sleep starting before noon is attributed to the previous night's date
+// (e.g., falling asleep at 2am March 30 → night of March 29).
+//
+// Important: t.Hour() uses t's inherent timezone. Callers must ensure t
+// carries the correct timezone (e.g., from time.ParseInLocation or a
+// format with offset like RFC3339). Times parsed without offset default
+// to UTC, which may misattribute the night for non-UTC users.
+func SleepNightDate(t time.Time) time.Time {
 	d := DateOnly(t)
 	if t.Hour() < 12 {
 		d = d.AddDate(0, 0, -1)

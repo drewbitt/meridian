@@ -52,6 +52,13 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		if v, err := strconv.ParseFloat(form.Get("sleep_need_hours"), 64); err == nil && v >= 4 && v <= 12 {
 			settings.Set("sleep_need_hours", v)
 		}
+		if v := form.Get("chronotype_shift"); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= -3 && f <= 3 {
+				settings.Set("chronotype_shift", f)
+			}
+		} else {
+			settings.Set("chronotype_shift", 0)
+		}
 		settings.Set("ntfy_topic", form.Get("ntfy_topic"))
 		if v := form.Get("ntfy_server"); v != "" {
 			settings.Set("ntfy_server", v)
@@ -75,6 +82,23 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 			settings.Set("fitbit_client_secret", v)
 		}
 		settings.Set("notifications_enabled", form.Get("notifications_enabled") == "on")
+		settings.Set("location_name", form.Get("location_name"))
+
+		// Location coordinates (from geocoding UI). Empty means the user cleared the location.
+		if v := form.Get("latitude"); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= -90 && f <= 90 {
+				settings.Set("latitude", f)
+			}
+		} else {
+			settings.Set("latitude", 0)
+		}
+		if v := form.Get("longitude"); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= -180 && f <= 180 {
+				settings.Set("longitude", f)
+			}
+		} else {
+			settings.Set("longitude", 0)
+		}
 
 		if err := app.Save(settings); err != nil {
 			return re.InternalServerError("Failed to save settings", err)

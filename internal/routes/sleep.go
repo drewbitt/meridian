@@ -1,10 +1,12 @@
 package routes
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/drewbitt/meridian/internal/ingest"
+	"github.com/drewbitt/meridian/internal/services"
 	"github.com/drewbitt/meridian/internal/templates"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -52,23 +54,29 @@ func registerSleepRoutes(se *core.ServeEvent, app core.App) {
 		if duration > 24*60 {
 			return re.BadRequestError("Sleep duration cannot exceed 24 hours", nil)
 		}
-		sleepDate := ingest.DateOnly(sleepStart)
 
-		collection, err := app.FindCollectionByNameOrId("sleep_records")
-		if err != nil {
-			return re.InternalServerError("", err)
+		// Reject entries in the future (sleep_start can't be after right now).
+		if sleepStart.After(time.Now().Add(1 * time.Hour)) {
+			return re.BadRequestError("Sleep time cannot be in the future", nil)
 		}
 
-		record := core.NewRecord(collection)
-		record.Set("user", userID)
-		record.Set("date", sleepDate)
-		record.Set("sleep_start", sleepStart)
-		record.Set("sleep_end", sleepEnd)
-		record.Set("source", "manual")
-		record.Set("duration_minutes", duration)
+		sleepDate := ingest.SleepNightDate(sleepStart)
 
-		if err := app.Save(record); err != nil {
+		// Use upsert to prevent duplicate records for the same night + source.
+		rec := ingest.SleepRecord{
+			Date:            sleepDate,
+			SleepStart:      sleepStart,
+			SleepEnd:        sleepEnd,
+			DurationMinutes: duration,
+			Source:          "manual",
+		}
+		if _, err := services.UpsertSleepRecord(app, userID, rec); err != nil {
 			return re.InternalServerError("Failed to save", err)
+		}
+
+		// Recompute schedule with the new sleep data.
+		if _, err := services.RefreshScheduleIfNeeded(app, userID); err != nil {
+			slog.Error("failed to refresh schedule after manual entry", "user_id", userID, "error", err)
 		}
 
 		return re.Redirect(http.StatusSeeOther, "/")

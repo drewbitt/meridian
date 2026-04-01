@@ -28,7 +28,8 @@ func registerDashboardRoutes(se *core.ServeEvent, app core.App) {
 			debt = engine.SleepDebt{}
 		}
 
-		return render(re, templates.Dashboard(schedule, debt))
+		resolvedHabits := loadHabitsForDashboard(app, userID, schedule)
+		return render(re, templates.Dashboard(schedule, debt, resolvedHabits))
 	})
 
 	// SSE endpoint for live dashboard updates.
@@ -63,6 +64,14 @@ func registerDashboardRoutes(se *core.ServeEvent, app core.App) {
 		buf.Reset()
 		_ = templates.TodaySchedule(schedule).Render(re.Request.Context(), &buf)
 		_ = sse.PatchElements(buf.String())
+
+		// Patch habit timeline.
+		resolvedHabits := loadHabitsForDashboard(app, userID, schedule)
+		if len(resolvedHabits) > 0 {
+			buf.Reset()
+			_ = templates.HabitTimeline(resolvedHabits).Render(re.Request.Context(), &buf)
+			_ = sse.PatchElements(buf.String())
+		}
 
 		return nil
 	})

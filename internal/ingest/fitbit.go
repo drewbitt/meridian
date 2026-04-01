@@ -7,12 +7,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
 )
 
-var errFitbitAPI = errors.New("fitbit API error")
+var (
+	errFitbitAPI = errors.New("fitbit API error")
+	// ErrTokenRevoked indicates the Fitbit refresh token has been permanently invalidated.
+	ErrTokenRevoked = errors.New("fitbit token permanently invalid, re-authorization required")
+	// ErrRateLimited indicates the Fitbit API rate limit was exceeded.
+	ErrRateLimited = errors.New("fitbit API rate limited")
+	// ErrSleepPending indicates sleep data is still being classified by Fitbit.
+	ErrSleepPending = errors.New("fitbit sleep data still being classified")
+)
 
 // NewFitbitOAuthConfig creates a per-user Fitbit OAuth2 config.
 func NewFitbitOAuthConfig(clientID, clientSecret, redirectURL string) *oauth2.Config {
@@ -31,6 +40,12 @@ func NewFitbitOAuthConfig(clientID, clientSecret, redirectURL string) *oauth2.Co
 // fitbitSleepResponse maps the Fitbit sleep API response.
 type fitbitSleepResponse struct {
 	Sleep []fitbitSleepLog `json:"sleep"`
+	Meta  *fitbitSleepMeta `json:"meta,omitempty"`
+}
+
+type fitbitSleepMeta struct {
+	State         string `json:"state"`         // "pending" when data is being classified
+	RetryDuration int    `json:"retryDuration"` // milliseconds to wait before retrying
 }
 
 type fitbitSleepLog struct {
@@ -112,6 +127,9 @@ func fetchFitbitSleepURL(client *http.Client, url string, loc *time.Location) ([
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("fitbit API returned 429: %w", ErrRateLimited)
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("fitbit API returned %d: %s: %w", resp.StatusCode, body, errFitbitAPI)
@@ -120,6 +138,13 @@ func fetchFitbitSleepURL(client *http.Client, url string, loc *time.Location) ([
 	var sleepResp fitbitSleepResponse
 	if err := json.NewDecoder(resp.Body).Decode(&sleepResp); err != nil {
 		return nil, fmt.Errorf("decode fitbit response: %w", err)
+	}
+
+	// Fitbit returns meta.state="pending" while sleep data is still being
+	// classified (e.g. right after wake-up). If there are no sleep records
+	// and data is pending, signal the caller to retry.
+	if len(sleepResp.Sleep) == 0 && sleepResp.Meta != nil && sleepResp.Meta.State == "pending" {
+		return nil, fmt.Errorf("sleep data pending (retry in %dms): %w", sleepResp.Meta.RetryDuration, ErrSleepPending)
 	}
 
 	return parseFitbitSleepLogs(sleepResp.Sleep, loc), nil
@@ -174,11 +199,34 @@ func parseFitbitSleepLogs(logs []fitbitSleepLog, loc *time.Location) []SleepReco
 }
 
 // RefreshFitbitToken refreshes an expired Fitbit OAuth2 token.
+// Returns ErrTokenRevoked if the refresh token is permanently invalid
+// (e.g. revoked, expired, or user deauthorized the app).
 func RefreshFitbitToken(ctx context.Context, cfg *oauth2.Config, token *oauth2.Token) (*oauth2.Token, error) {
 	src := cfg.TokenSource(ctx, token)
 	newToken, err := src.Token()
 	if err != nil {
+		if isFitbitInvalidGrant(err) {
+			return nil, fmt.Errorf("refresh fitbit token: %w: %w", ErrTokenRevoked, err)
+		}
 		return nil, fmt.Errorf("refresh fitbit token: %w", err)
 	}
 	return newToken, nil
+}
+
+// isFitbitInvalidGrant checks whether the OAuth2 error is a Fitbit invalid_grant,
+// which indicates the refresh token is permanently unusable (revoked, expired,
+// or the user deauthorized the application). The user must re-authenticate.
+//
+// Fitbit returns errors as {"errors":[{"errorType":"invalid_grant"}]} rather than
+// the RFC 6749 standard {"error":"invalid_grant"}, so re.ErrorCode may be empty.
+// We check the structured ErrorCode first, then fall back to body inspection.
+func isFitbitInvalidGrant(err error) bool {
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) {
+		if re.ErrorCode == "invalid_grant" {
+			return true
+		}
+		return strings.Contains(string(re.Body), "invalid_grant")
+	}
+	return strings.Contains(err.Error(), "invalid_grant")
 }

@@ -5,6 +5,7 @@ assets/dist/*
 *_templ.go
 /meridian
 *.exe
+*.test
 .env
 .mise/
 mise.local.toml

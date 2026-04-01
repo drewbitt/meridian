@@ -54,9 +54,12 @@ func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 		if err != nil {
 			continue
 		}
+		if !end.After(start) || end.Sub(start).Minutes() > 24*60 {
+			continue // skip malformed or implausibly long sessions
+		}
 
 		rec := SleepRecord{
-			Date:            sleepNightDate(start),
+			Date:            SleepNightDate(start),
 			SleepStart:      start,
 			SleepEnd:        end,
 			Source:          SourceHealthConnect,

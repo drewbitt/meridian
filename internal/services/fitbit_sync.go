@@ -18,20 +18,11 @@ var errFitbitCredentials = errors.New("fitbit credentials missing")
 
 // Per-user mutex to prevent concurrent token refreshes from invalidating
 // each other (Fitbit revokes old refresh tokens on use).
-var (
-	syncMu    sync.Mutex
-	syncLocks = make(map[string]*sync.Mutex)
-)
+var syncLocks sync.Map // map[string]*sync.Mutex
 
 func userSyncLock(userID string) *sync.Mutex {
-	syncMu.Lock()
-	defer syncMu.Unlock()
-	mu, ok := syncLocks[userID]
-	if !ok {
-		mu = &sync.Mutex{}
-		syncLocks[userID] = mu
-	}
-	return mu
+	val, _ := syncLocks.LoadOrStore(userID, &sync.Mutex{})
+	return val.(*sync.Mutex)
 }
 
 // SyncFitbitUser syncs Fitbit sleep data for a single user's settings record
@@ -64,16 +55,54 @@ func SyncFitbitUser(app core.App, s *core.Record, start, end time.Time) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Refresh token if expired.
-	if token.Expiry.Before(time.Now()) {
+	// Refresh token proactively before expiry. The 5-minute buffer prevents
+	// the token from expiring mid-request, which would cause the oauth2 client
+	// to silently refresh (rotating the refresh token) without persisting
+	// the new token — leading to permanent disconnect on next sync.
+	if token.Expiry.Before(time.Now().Add(5 * time.Minute)) {
 		newToken, err := ingest.RefreshFitbitToken(ctx, cfg, token)
+		if err != nil && errors.Is(err, ingest.ErrTokenRevoked) {
+			// Retry once: Fitbit has a 2-minute idempotency window where
+			// identical refresh requests return the same response. This
+			// handles the case where the first request reached Fitbit but
+			// the response was lost (e.g., network timeout). The old refresh
+			// token is already rotated, but within the window Fitbit will
+			// re-issue the same new token pair.
+			slog.Warn("fitbit token refresh got invalid_grant, retrying once", "user_id", userID)
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				return fmt.Errorf("token refresh: %w", ctx.Err())
+			}
+			newToken, err = ingest.RefreshFitbitToken(ctx, cfg, token)
+		}
 		if err != nil {
+			if errors.Is(err, ingest.ErrTokenRevoked) {
+				slog.Warn("fitbit token permanently invalid, clearing stored tokens", "user_id", userID)
+				s.Set("fitbit_access_token", "")
+				s.Set("fitbit_refresh_token", "")
+				s.Set("fitbit_token_expiry", nil)
+				if saveErr := app.Save(s); saveErr != nil {
+					slog.Error("failed to clear revoked fitbit tokens", "user_id", userID, "error", saveErr)
+				}
+				notifyTokenRevoked(s)
+			}
 			return fmt.Errorf("token refresh: %w", err)
 		}
 		s.Set("fitbit_access_token", newToken.AccessToken)
 		s.Set("fitbit_refresh_token", newToken.RefreshToken)
 		s.Set("fitbit_token_expiry", newToken.Expiry)
+		// Save immediately — Fitbit already rotated the refresh token, so
+		// the old one in the DB is dead. If this save fails, clear the
+		// tokens to avoid a stale (revoked) refresh token persisting,
+		// which would cause a permanent disconnect on next sync.
 		if err := app.Save(s); err != nil {
+			slog.Error("failed to save refreshed token, clearing to avoid stale state", "user_id", userID, "error", err)
+			s.Set("fitbit_access_token", "")
+			s.Set("fitbit_refresh_token", "")
+			s.Set("fitbit_token_expiry", nil)
+			_ = app.Save(s)
+			notifyTokenRevoked(s)
 			return fmt.Errorf("save refreshed token: %w", err)
 		}
 		token = newToken
@@ -98,7 +127,25 @@ func SyncFitbitUser(app core.App, s *core.Record, start, end time.Time) error {
 	} else {
 		records, err = ingest.FetchFitbitSleepRange(ctx, cfg, token, start, end, loc)
 	}
+	// If sleep data is still being classified (user just woke up), wait
+	// briefly and retry once. Fitbit typically needs ~3 seconds.
+	if err != nil && errors.Is(err, ingest.ErrSleepPending) {
+		slog.Info("fitbit sleep data pending, retrying after short wait", "user_id", userID)
+		select {
+		case <-time.After(4 * time.Second):
+		case <-ctx.Done():
+			return fmt.Errorf("fetch sleep: %w", ctx.Err())
+		}
+		if start.Format("2006-01-02") == end.Format("2006-01-02") {
+			records, err = ingest.FetchFitbitSleep(ctx, cfg, token, start, loc)
+		} else {
+			records, err = ingest.FetchFitbitSleepRange(ctx, cfg, token, start, end, loc)
+		}
+	}
 	if err != nil {
+		if errors.Is(err, ingest.ErrRateLimited) {
+			slog.Warn("fitbit API rate limited, skipping sync", "user_id", userID)
+		}
 		return fmt.Errorf("fetch sleep: %w", err)
 	}
 
@@ -115,6 +162,35 @@ func SyncFitbitUser(app core.App, s *core.Record, start, end time.Time) error {
 	}
 
 	return nil
+}
+
+// notifyTokenRevoked sends a notification to the user that their Fitbit
+// connection was lost and they need to reconnect.
+func notifyTokenRevoked(s *core.Record) {
+	if !s.GetBool("notifications_enabled") || s.GetString("ntfy_topic") == "" {
+		return
+	}
+	siteURL := s.GetString("site_url")
+	settingsURL := ""
+	if siteURL != "" {
+		settingsURL = strings.TrimRight(siteURL, "/") + "/settings"
+	}
+	notif := Notification{
+		Server:      s.GetString("ntfy_server"),
+		Topic:       s.GetString("ntfy_topic"),
+		AccessToken: s.GetString("ntfy_access_token"),
+		Title:       "Fitbit disconnected",
+		Message:     "Your Fitbit token was revoked. Reconnect in Settings to resume auto-sync.",
+		Priority:    4,
+		Tags:        []string{"warning", "link"},
+	}
+	if settingsURL != "" {
+		notif.Click = settingsURL
+		notif.Actions = []Action{{Type: "view", Label: "Reconnect", URL: settingsURL}}
+	}
+	if err := SendNotification(notif); err != nil {
+		slog.Error("failed to send token-revoked notification", "user_id", s.GetString("user"), "error", err)
+	}
 }
 
 // FitbitConfigFromSettings builds a Fitbit OAuth2 config from a settings record.

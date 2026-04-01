@@ -27,7 +27,7 @@ func UpsertSleepRecord(app core.App, userID string, rec ingest.SleepRecord) (*co
 		record.Set("user", userID)
 	}
 
-	record.Set("date", rec.Date)
+	record.Set("date", dateStr)
 	record.Set("sleep_start", rec.SleepStart)
 	record.Set("sleep_end", rec.SleepEnd)
 	record.Set("source", rec.Source)

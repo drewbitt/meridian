@@ -134,7 +134,13 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 			continue
 		}
 
+		if !end.After(start) {
+			continue // malformed: end before or equal to start
+		}
 		mins := int(end.Sub(start).Minutes())
+		if mins <= 0 || mins > 24*60 {
+			continue // skip negative or implausibly long durations
+		}
 		nightStart := start
 		if start.Hour() < 12 {
 			nightStart = start.AddDate(0, 0, -1)
@@ -177,7 +183,7 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 			total = int(nd.sleepEnd.Sub(nd.sleepStart).Minutes())
 		}
 		records = append(records, SleepRecord{
-			Date:            sleepNightDate(nd.sleepStart),
+			Date:            SleepNightDate(nd.sleepStart),
 			SleepStart:      nd.sleepStart,
 			SleepEnd:        nd.sleepEnd,
 			Source:          SourceAppleHealth,

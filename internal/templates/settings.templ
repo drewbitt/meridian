@@ -71,6 +71,23 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 					</div>
 
 					<div>
+						<label for="chronotype_shift" class="block text-sm font-medium text-gray-400 mb-1.5">
+							Chronotype Shift (hours)
+						</label>
+						<input
+							type="number"
+							id="chronotype_shift"
+							name="chronotype_shift"
+							step="0.5"
+							min="-3"
+							max="3"
+							value={ chronotypeShiftValue(settings) }
+							class="input-field"
+						/>
+						<p class="mt-1 text-xs text-gray-600">Manual override for circadian phase. 0 = auto-detect from sleep patterns. Negative = early bird, positive = night owl.</p>
+					</div>
+
+					<div>
 						<div class="flex items-baseline justify-between mb-1.5">
 							<label for="ntfy_topic" class="text-sm font-medium text-gray-400">ntfy Topic</label>
 							<span class="flex items-center gap-2">
@@ -134,6 +151,56 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 					</div>
 
 					<div>
+						<label class="block text-sm font-medium text-gray-400 mb-1.5">
+							Location
+						</label>
+						<input type="hidden" id="location_name" name="location_name" value={ getSettingStr(settings, "location_name") }/>
+
+						<div id="location-display" class={ "flex items-center justify-between rounded-lg bg-night-deep border border-night-border px-3 py-2.5", templ.KV("hidden", getSettingStr(settings, "location_name") == "") }>
+							<div class="flex items-center gap-2.5 min-w-0">
+								<svg class="h-4 w-4 text-dusk flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+									<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z"/>
+								</svg>
+								<div class="min-w-0">
+									<div id="location-display-name" class="text-sm text-gray-100 truncate">{ getSettingStr(settings, "location_name") }</div>
+									<div id="location-display-coords" class="text-xs text-gray-500">{ formatLocation(settings) }</div>
+								</div>
+							</div>
+							<div class="flex items-center gap-3 flex-shrink-0 ml-2">
+								<button type="button" class="text-xs font-medium text-dusk hover:text-dawn transition-colors" onclick="editLocation()">Change</button>
+								<button type="button" class="text-xs text-gray-500 hover:text-dawn transition-colors" onclick="clearLocation()">Clear</button>
+							</div>
+						</div>
+
+						<div id="location-edit" class={ "relative", templ.KV("hidden", getSettingStr(settings, "location_name") != "") }>
+							<input
+								type="text"
+								id="location_search"
+								placeholder="Search city..."
+								autocomplete="off"
+								class="input-field pr-8"
+								oninput="searchLocation(this.value)"
+							/>
+							<svg id="location-spinner" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+							</svg>
+							<div id="location-results" class="absolute z-10 mt-1 w-full rounded-lg bg-night border border-gray-700 shadow-lg hidden max-h-48 overflow-y-auto"></div>
+							<button type="button" id="location-cancel" onclick="cancelEditLocation()" class={ "mt-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors", templ.KV("hidden", getSettingStr(settings, "location_name") == "") }>Cancel</button>
+						</div>
+
+						if getSettingStr(settings, "location_name") == "" && getSettingStr(settings, "timezone") != "" {
+							<p class="mt-1 text-xs text-gray-500">
+								Using approximate location from timezone. Search your city for better accuracy.
+							</p>
+						}
+						<p class="mt-1 text-xs text-gray-600">Used for sunrise/sunset timing and seasonal circadian adjustment.</p>
+						<input type="hidden" id="latitude" name="latitude" value={ getSettingStr(settings, "latitude") }/>
+						<input type="hidden" id="longitude" name="longitude" value={ getSettingStr(settings, "longitude") }/>
+					</div>
+
+					<div>
 						<label for="timezone" class="block text-sm font-medium text-gray-400 mb-1.5">
 							Timezone
 						</label>
@@ -145,7 +212,7 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 							value={ getSettingStr(settings, "timezone") }
 							class="input-field"
 						/>
-						<p class="mt-1 text-xs text-gray-600">IANA timezone (e.g. America/New_York). Auto-detected from browser if empty.</p>
+						<p class="mt-1 text-xs text-gray-600">IANA timezone. Auto-detected from browser if empty, or set by location search above.</p>
 					</div>
 
 					<div>
@@ -238,12 +305,18 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 						}
 					</div>
 					if hasFitbitLastSync(settings) {
-						<div class="text-xs text-gray-600 -mt-2">
-							Last synced { formatLastSyncRelative(settings) }
-							if formatLastSyncAbsolute(settings) != "" {
-								(<local-time datetime={ formatLastSyncAbsolute(settings) }></local-time>)
-							}
-						</div>
+						if hasFitbitToken(settings) {
+							<div class="text-xs text-gray-600 -mt-2">
+								Last synced { formatLastSyncRelative(settings) }
+								if formatLastSyncAbsolute(settings) != "" {
+									(<local-time datetime={ formatLastSyncAbsolute(settings) }></local-time>)
+								}
+							</div>
+						} else {
+							<div class="text-xs text-dawn -mt-2">
+								Disconnected — last synced { formatLastSyncRelative(settings) }. Reconnect to resume auto-sync.
+							</div>
+						}
 					}
 
 					<div class="border-t border-night-border pt-4">
@@ -292,6 +365,98 @@ templ Settings(settings *core.Record, saved bool, importedCount string, importEr
 					.catch(function(){result.textContent='failed';result.className='text-xs text-dawn'})
 					.finally(function(){btn.disabled=false});
 			}
+
+			function editLocation() {
+				document.getElementById('location-display').classList.add('hidden');
+				document.getElementById('location-edit').classList.remove('hidden');
+				if (document.getElementById('location_name').value) {
+					document.getElementById('location-cancel').classList.remove('hidden');
+				}
+				document.getElementById('location_search').focus();
+			}
+			function clearLocation() {
+				document.getElementById('latitude').value = '';
+				document.getElementById('longitude').value = '';
+				document.getElementById('location_name').value = '';
+				document.getElementById('location_search').value = '';
+				document.getElementById('location-display').classList.add('hidden');
+				document.getElementById('location-edit').classList.remove('hidden');
+				document.getElementById('location-cancel').classList.add('hidden');
+				document.getElementById('location_search').focus();
+			}
+			function cancelEditLocation() {
+				document.getElementById('location-display').classList.remove('hidden');
+				document.getElementById('location-edit').classList.add('hidden');
+				document.getElementById('location_search').value = '';
+				var box = document.getElementById('location-results');
+				if (box) box.classList.add('hidden');
+			}
+
+			// Location search via Open-Meteo Geocoding API (free, no key, CORS-enabled).
+			var _searchTimer = null;
+			function searchLocation(query) {
+				clearTimeout(_searchTimer);
+				var box = document.getElementById('location-results');
+				var spinner = document.getElementById('location-spinner');
+				if (query.length < 2) { box.classList.add('hidden'); spinner.classList.add('hidden'); return; }
+				spinner.classList.remove('hidden');
+				_searchTimer = setTimeout(function() {
+					fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(query) + '&count=6&language=en&format=json')
+						.then(function(r) { return r.json(); })
+						.then(function(data) {
+							spinner.classList.add('hidden');
+							box.replaceChildren();
+							if (!data.results || data.results.length === 0) {
+								var noRes = document.createElement('div');
+								noRes.className = 'px-3 py-2 text-xs text-gray-500';
+								noRes.textContent = 'No results';
+								box.appendChild(noRes);
+								box.classList.remove('hidden');
+								return;
+							}
+							data.results.forEach(function(r) {
+								var div = document.createElement('div');
+								div.className = 'px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 cursor-pointer transition-colors';
+								var nameSpan = document.createElement('span');
+								nameSpan.className = 'text-gray-100';
+								nameSpan.textContent = r.name;
+								div.appendChild(nameSpan);
+								var region = [r.admin1, r.country].filter(Boolean).join(', ');
+								if (region) {
+									var regionSpan = document.createElement('span');
+									regionSpan.className = 'text-gray-500 text-xs';
+									regionSpan.textContent = ' ' + region;
+									div.appendChild(regionSpan);
+								}
+								div.onclick = function() { selectLocation(r); };
+								box.appendChild(div);
+							});
+							box.classList.remove('hidden');
+						})
+						.catch(function() { spinner.classList.add('hidden'); box.classList.add('hidden'); });
+				}, 300);
+			}
+			function selectLocation(result) {
+				document.getElementById('latitude').value = result.latitude.toFixed(4);
+				document.getElementById('longitude').value = result.longitude.toFixed(4);
+				if (result.timezone) document.getElementById('timezone').value = result.timezone;
+				var label = result.name;
+				if (result.admin1) label += ', ' + result.admin1;
+				if (result.country) label += ', ' + result.country;
+				document.getElementById('location_name').value = label;
+				document.getElementById('location_search').value = '';
+				document.getElementById('location-results').classList.add('hidden');
+				document.getElementById('location-display-name').textContent = label;
+				var lat = Math.abs(result.latitude).toFixed(2);
+				var lng = Math.abs(result.longitude).toFixed(2);
+				document.getElementById('location-display-coords').textContent = lat + '\u00b0' + (result.latitude >= 0 ? 'N' : 'S') + ', ' + lng + '\u00b0' + (result.longitude >= 0 ? 'E' : 'W');
+				document.getElementById('location-display').classList.remove('hidden');
+				document.getElementById('location-edit').classList.add('hidden');
+			}
+			document.addEventListener('click', function(e) {
+				var box = document.getElementById('location-results');
+				if (box && !box.contains(e.target) && e.target.id !== 'location_search') box.classList.add('hidden');
+			});
 		</script>
 	}
 }
@@ -303,6 +468,17 @@ func sleepNeedValue(settings *core.Record) string {
 	v := settings.GetFloat("sleep_need_hours")
 	if v == 0 {
 		return "8.0"
+	}
+	return fmt.Sprintf("%.1f", v)
+}
+
+func chronotypeShiftValue(settings *core.Record) string {
+	if settings == nil {
+		return "0"
+	}
+	v := settings.GetFloat("chronotype_shift")
+	if v == 0 {
+		return "0"
 	}
 	return fmt.Sprintf("%.1f", v)
 }
@@ -370,6 +546,28 @@ func formatLastSyncAbsolute(settings *core.Record) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+func formatLocation(settings *core.Record) string {
+	if settings == nil {
+		return ""
+	}
+	lat := settings.GetFloat("latitude")
+	lng := settings.GetFloat("longitude")
+	if lat == 0 && lng == 0 {
+		return ""
+	}
+	ns := "N"
+	if lat < 0 {
+		ns = "S"
+		lat = -lat
+	}
+	ew := "E"
+	if lng < 0 {
+		ew = "W"
+		lng = -lng
+	}
+	return fmt.Sprintf("%.2f\u00b0%s, %.2f\u00b0%s", lat, ns, lng, ew)
 }
 
 func callbackURL(settings *core.Record) string {

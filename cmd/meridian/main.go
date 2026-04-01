@@ -61,14 +61,33 @@ func main() {
 		},
 	})
 
+	// Sync Fitbit immediately on startup so data isn't stale until the first
+	// cron tick (up to 30 min away). Runs in a goroutine to avoid blocking serve.
+	app.OnServe().Bind(&hook.Handler[*core.ServeEvent]{
+		Id: "startup-fitbit-sync",
+		Func: func(se *core.ServeEvent) error {
+			go syncFitbitForAllUsers(app)
+			return se.Next()
+		},
+	})
+
 	app.Cron().MustAdd("fitbit-sync", "*/30 * * * *", func() {
 		syncFitbitForAllUsers(app)
 	})
 
-	// Morning job runs every 15 min but only processes users whose local
-	// time is 8 AM. RunMorningJob is idempotent (dedupes by date).
-	app.Cron().MustAdd("morning-schedule", "*/15 * * * *", func() {
+	// Morning job runs hourly but only fires for users whose local time is
+	// 8 AM. Computes the schedule + sends morning greeting only.
+	app.Cron().MustAdd("morning-schedule", "0 * * * *", func() {
 		runMorningJobForAllUsers(app)
+	})
+
+	// Short-horizon notification dispatcher: every 5 minutes, check for
+	// upcoming events (caffeine cutoff, melatonin, nap window, habits)
+	// and send notifications that fall within the next 10-minute window.
+	// Always reads the latest schedule, so mid-day changes (nap detection,
+	// Fitbit sync) are reflected immediately.
+	app.Cron().MustAdd("notification-dispatch", "*/5 * * * *", func() {
+		dispatchNotificationsForAllUsers(app)
 	})
 
 	if err := app.Start(); err != nil {
@@ -93,6 +112,19 @@ func runMorningJobForAllUsers(app *pocketbase.PocketBase) {
 	}
 }
 
+func dispatchNotificationsForAllUsers(app *pocketbase.PocketBase) {
+	users, err := app.FindAllRecords("users")
+	if err != nil {
+		slog.Error("failed to find users for notification dispatch", "error", err)
+		return
+	}
+	for _, user := range users {
+		if err := services.DispatchUpcomingNotifications(app, user.Id, 10*time.Minute); err != nil {
+			slog.Error("notification dispatch failed", "user_id", user.Id, "error", err)
+		}
+	}
+}
+
 func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 	settings, err := app.FindRecordsByFilter("settings", "fitbit_access_token != ''", "", 0, 0, nil)
 	if err != nil {
@@ -103,12 +135,16 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 	for _, s := range settings {
 		loc := services.LocationFromSettings(s)
 		now := time.Now().In(loc)
-		start := now.AddDate(0, 0, -1)
+		// Pull 3 days back (not just 1) to catch missed syncs, Fitbit sync
+		// delays, and timezone edge cases. The upsert is idempotent so
+		// re-fetching already-synced days is harmless.
+		start := now.AddDate(0, 0, -3)
 		if err := services.SyncFitbitUser(app, s, start, now); err != nil {
 			slog.Error("fitbit sync failed", "user_id", s.GetString("user"), "error", err)
 			continue
 		}
-		if err := services.UpdateUserSchedule(app, s.GetString("user")); err != nil {
+		// Use RefreshScheduleIfNeeded so nap detection + post-nap notifications work.
+		if _, err := services.RefreshScheduleIfNeeded(app, s.GetString("user")); err != nil {
 			slog.Error("schedule update after sync failed", "user_id", s.GetString("user"), "error", err)
 		}
 	}

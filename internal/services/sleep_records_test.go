@@ -117,6 +117,46 @@ func TestSingleRecord(t *testing.T) {
 	}
 }
 
+func TestThreeOverlappingRecords_ChainMerge(t *testing.T) {
+	// A-B overlap, B-C overlap, but A-C might not directly overlap.
+	// The merge should chain: A∪B, then (A∪B)∪C.
+	c := newSleepCollection()
+	a := makeRecord(c, "fitbit", "2024-03-15T23:00:00.000Z", "2024-03-16T05:00:00.000Z", [4]int{60, 70, 150, 20})
+	b := makeRecord(c, "manual", "2024-03-16T04:00:00.000Z", "2024-03-16T07:00:00.000Z", [4]int{0, 0, 0, 0})
+	c2 := makeRecord(c, "fitbit", "2024-03-16T06:30:00.000Z", "2024-03-16T08:00:00.000Z", [4]int{30, 40, 60, 10})
+
+	records, periods := ConvertSleepRecords([]*core.Record{a, b, c2})
+	if len(records) != 1 {
+		t.Fatalf("expected 1 merged record from 3 overlapping, got %d", len(records))
+	}
+	// Union: 23:00 - 08:00 = 540 min (9h).
+	if records[0].DurationMinutes != 540 {
+		t.Errorf("duration: got %d, want 540", records[0].DurationMinutes)
+	}
+	if len(periods) != 1 {
+		t.Fatalf("expected 1 period, got %d", len(periods))
+	}
+}
+
+func TestAdjacentRecords_NotMerged(t *testing.T) {
+	// Two records where one ends exactly when the next starts.
+	// p.start.After(last.end) is true when equal, so they should merge.
+	// Wait — "not after" means <=, so equal start to end DOES merge.
+	c := newSleepCollection()
+	a := makeRecord(c, "manual", "2024-03-15T23:00:00.000Z", "2024-03-16T03:00:00.000Z", [4]int{0, 0, 0, 0})
+	b := makeRecord(c, "manual", "2024-03-16T03:00:00.000Z", "2024-03-16T07:00:00.000Z", [4]int{0, 0, 0, 0})
+
+	records, _ := ConvertSleepRecords([]*core.Record{a, b})
+	// Adjacent (touching) records should be merged.
+	if len(records) != 1 {
+		t.Fatalf("adjacent records should merge: expected 1, got %d", len(records))
+	}
+	// 23:00 - 07:00 = 480 min.
+	if records[0].DurationMinutes != 480 {
+		t.Errorf("duration: got %d, want 480", records[0].DurationMinutes)
+	}
+}
+
 func TestEmptyInput(t *testing.T) {
 	records, periods := ConvertSleepRecords(nil)
 	if records != nil {

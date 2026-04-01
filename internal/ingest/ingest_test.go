@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"archive/zip"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -66,6 +67,7 @@ func createTestDBPath(t *testing.T, setup func(db *sql.DB)) string {
 // ===== Health Connect =====
 
 func TestParseHealthConnect(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		input       string
@@ -113,6 +115,7 @@ func TestParseHealthConnect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			records, err := ParseHealthConnect(strings.NewReader(tt.input))
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -131,6 +134,7 @@ func TestParseHealthConnect(t *testing.T) {
 }
 
 func TestParseHealthConnect_AllStageTypes(t *testing.T) {
+	t.Parallel()
 	r := openTestdata(t, "healthconnect_all_stages.json")
 	records, err := ParseHealthConnect(r)
 	if err != nil {
@@ -185,6 +189,7 @@ func TestParseHealthConnect_AllStageTypes(t *testing.T) {
 }
 
 func TestParseHealthConnect_SkipsInvalidTimes(t *testing.T) {
+	t.Parallel()
 	input := `{
 		"sleepSessions": [
 			{"startTime": "not-a-date", "endTime": "2024-01-16T07:00:00.000Z", "stages": []},
@@ -202,6 +207,7 @@ func TestParseHealthConnect_SkipsInvalidTimes(t *testing.T) {
 }
 
 func TestParseHealthConnect_SleepNightDate(t *testing.T) {
+	t.Parallel()
 	input := `{
 		"sleepSessions": [{
 			"startTime": "2024-03-11T01:30:00+01:00",
@@ -228,6 +234,7 @@ func TestParseHealthConnect_SleepNightDate(t *testing.T) {
 // ===== Apple Health =====
 
 func TestParseAppleHealthXML_iOS16(t *testing.T) {
+	t.Parallel()
 	r := openTestdata(t, "applehealth_realistic.xml")
 	records, err := ParseAppleHealthXML(r)
 	if err != nil {
@@ -274,6 +281,7 @@ func TestParseAppleHealthXML_iOS16(t *testing.T) {
 }
 
 func TestParseAppleHealthXML_iOS15Legacy(t *testing.T) {
+	t.Parallel()
 	input := `<?xml version="1.0" encoding="UTF-8"?>
 <HealthData locale="en_US">
   <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Clock" value="HKCategoryValueSleepAnalysisInBed" startDate="2024-03-11 00:15:00 -0500" endDate="2024-03-11 07:30:00 -0500"/>
@@ -852,6 +860,290 @@ func TestParseAHTime(t *testing.T) {
 			_, err := parseAHTime(tt.input)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseAHTime(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// ===== Fitbit Token Refresh =====
+
+func TestRefreshFitbitToken_InvalidGrant(t *testing.T) {
+	fitbitBody := `{"errors":[{"errorType":"invalid_grant","message":"Refresh token invalid: abc123"}],"success":false}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json;charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(fitbitBody))
+	}))
+	defer srv.Close()
+
+	cfg := &oauth2.Config{
+		ClientID:     "test-id",
+		ClientSecret: "test-secret",
+		Endpoint: oauth2.Endpoint{
+			TokenURL: srv.URL,
+		},
+	}
+
+	token := &oauth2.Token{
+		AccessToken:  "expired-access",
+		RefreshToken: "abc123",
+		Expiry:       time.Now().Add(-1 * time.Hour),
+	}
+
+	_, err := RefreshFitbitToken(context.Background(), cfg, token)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !errors.Is(err, ErrTokenRevoked) {
+		t.Errorf("expected ErrTokenRevoked in error chain, got: %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "invalid_grant") {
+		t.Errorf("expected 'invalid_grant' in error message, got: %v", err)
+	}
+
+	var re *oauth2.RetrieveError
+	if !errors.As(err, &re) {
+		t.Fatalf("expected *oauth2.RetrieveError in chain, got: %T: %v", err, err)
+	}
+
+	t.Logf("RetrieveError.ErrorCode = %q", re.ErrorCode)
+	t.Logf("RetrieveError.Body = %s", string(re.Body))
+
+	if !isFitbitInvalidGrant(err) {
+		t.Error("isFitbitInvalidGrant should return true for Fitbit invalid_grant")
+	}
+}
+
+func TestRefreshFitbitToken_TransientError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json;charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"errors":[{"errorType":"server_error"}],"success":false}`))
+	}))
+	defer srv.Close()
+
+	cfg := &oauth2.Config{
+		ClientID:     "test-id",
+		ClientSecret: "test-secret",
+		Endpoint: oauth2.Endpoint{
+			TokenURL: srv.URL,
+		},
+	}
+
+	token := &oauth2.Token{
+		AccessToken:  "expired-access",
+		RefreshToken: "abc123",
+		Expiry:       time.Now().Add(-1 * time.Hour),
+	}
+
+	_, err := RefreshFitbitToken(context.Background(), cfg, token)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if errors.Is(err, ErrTokenRevoked) {
+		t.Error("server_error should NOT be ErrTokenRevoked")
+	}
+}
+
+func TestRefreshFitbitToken_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/revoke" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json;charset=utf-8")
+		_, _ = w.Write([]byte(`{
+			"access_token": "new-access",
+			"refresh_token": "new-refresh",
+			"expires_in": 3600,
+			"token_type": "Bearer"
+		}`))
+	}))
+	defer srv.Close()
+
+	cfg := &oauth2.Config{
+		ClientID:     "test-id",
+		ClientSecret: "test-secret",
+		Endpoint: oauth2.Endpoint{
+			TokenURL: srv.URL,
+		},
+	}
+
+	token := &oauth2.Token{
+		AccessToken:  "expired-access",
+		RefreshToken: "old-refresh",
+		Expiry:       time.Now().Add(-1 * time.Hour),
+	}
+
+	newToken, err := RefreshFitbitToken(context.Background(), cfg, token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newToken.AccessToken != "new-access" {
+		t.Errorf("access_token = %q, want %q", newToken.AccessToken, "new-access")
+	}
+	if newToken.RefreshToken != "new-refresh" {
+		t.Errorf("refresh_token = %q, want %q", newToken.RefreshToken, "new-refresh")
+	}
+}
+
+func TestFetchFitbitSleepRange(t *testing.T) {
+	response := fitbitSleepResponse{
+		Sleep: []fitbitSleepLog{
+			{
+				DateOfSleep: "2024-03-10",
+				StartTime:   "2024-03-09T23:00:00.000",
+				EndTime:     "2024-03-10T07:00:00.000",
+				Duration:    28800000,
+				IsMainSleep: true,
+				Levels: fitbitSleepLevel{
+					Summary: map[string]fitbitStageSummary{
+						"deep":  {Minutes: 90},
+						"rem":   {Minutes: 100},
+						"light": {Minutes: 200},
+						"wake":  {Minutes: 30},
+					},
+				},
+			},
+			{
+				DateOfSleep: "2024-03-11",
+				StartTime:   "2024-03-10T23:30:00.000",
+				EndTime:     "2024-03-11T06:30:00.000",
+				Duration:    25200000,
+				IsMainSleep: true,
+				Levels: fitbitSleepLevel{
+					Summary: map[string]fitbitStageSummary{
+						"deep":  {Minutes: 80},
+						"rem":   {Minutes: 85},
+						"light": {Minutes: 180},
+						"wake":  {Minutes: 20},
+					},
+				},
+			},
+		},
+	}
+
+	var capturedURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.Path
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer srv.Close()
+
+	orig := fitbitBaseURL
+	fitbitBaseURL = srv.URL
+	defer func() { fitbitBaseURL = orig }()
+
+	est, _ := time.LoadLocation("America/New_York")
+	start := time.Date(2024, 3, 10, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2024, 3, 11, 0, 0, 0, 0, time.UTC)
+
+	records, err := FetchFitbitSleepRange(t.Context(), testFitbitConfig(), &oauth2.Token{
+		AccessToken: "test-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(time.Hour),
+	}, start, end, est)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should use range URL format
+	if !strings.Contains(capturedURL, "/sleep/date/2024-03-10/2024-03-11.json") {
+		t.Errorf("expected range URL, got %s", capturedURL)
+	}
+
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+
+	// Verify both records parsed
+	if records[0].DurationMinutes != 480 { // 8h
+		t.Errorf("record 0 duration: got %d, want 480", records[0].DurationMinutes)
+	}
+	if records[1].DurationMinutes != 420 { // 7h
+		t.Errorf("record 1 duration: got %d, want 420", records[1].DurationMinutes)
+	}
+}
+
+func TestFetchFitbitSleepRange_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"errors": [{"errorType": "rate_limit"}]}`))
+	}))
+	defer srv.Close()
+
+	orig := fitbitBaseURL
+	fitbitBaseURL = srv.URL
+	defer func() { fitbitBaseURL = orig }()
+
+	_, err := FetchFitbitSleepRange(t.Context(), testFitbitConfig(), &oauth2.Token{
+		AccessToken: "test-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(time.Hour),
+	}, time.Now(), time.Now(), time.UTC)
+
+	if err == nil {
+		t.Error("expected error for rate-limited response")
+	}
+	if !errors.Is(err, ErrRateLimited) {
+		t.Errorf("expected ErrRateLimited, got: %v", err)
+	}
+}
+
+func TestSleepNightDate(t *testing.T) {
+	est, _ := time.LoadLocation("America/New_York")
+	tests := []struct {
+		name     string
+		input    time.Time
+		wantDate string // YYYY-MM-DD in the input's location
+	}{
+		{
+			name:     "4am sleep attributed to previous night",
+			input:    time.Date(2026, 3, 30, 4, 0, 0, 0, est),
+			wantDate: "2026-03-29",
+		},
+		{
+			name:     "2am sleep attributed to previous night",
+			input:    time.Date(2026, 3, 30, 2, 0, 0, 0, est),
+			wantDate: "2026-03-29",
+		},
+		{
+			name:     "11:59am still attributed to previous night",
+			input:    time.Date(2026, 3, 30, 11, 59, 0, 0, est),
+			wantDate: "2026-03-29",
+		},
+		{
+			name:     "noon sleep attributed to same day",
+			input:    time.Date(2026, 3, 30, 12, 0, 0, 0, est),
+			wantDate: "2026-03-30",
+		},
+		{
+			name:     "11pm bedtime attributed to same day",
+			input:    time.Date(2026, 3, 29, 23, 0, 0, 0, est),
+			wantDate: "2026-03-29",
+		},
+		{
+			name:     "midnight exactly attributed to previous night",
+			input:    time.Date(2026, 3, 30, 0, 0, 0, 0, est),
+			wantDate: "2026-03-29",
+		},
+		{
+			name:     "UTC timezone works too",
+			input:    time.Date(2026, 3, 30, 3, 0, 0, 0, time.UTC),
+			wantDate: "2026-03-29",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SleepNightDate(tt.input)
+			gotStr := got.Format("2006-01-02")
+			if gotStr != tt.wantDate {
+				t.Errorf("SleepNightDate(%s) = %s, want %s",
+					tt.input.Format("2006-01-02 15:04 MST"), gotStr, tt.wantDate)
 			}
 		})
 	}

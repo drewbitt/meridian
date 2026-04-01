@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"time"
 	"github.com/drewbitt/meridian/internal/engine"
+	"github.com/drewbitt/meridian/internal/services"
 )
 
 
-templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
+templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits []services.ResolvedHabit) {
 	@Layout("Dashboard") {
 		<div
 			data-init="@get('/sse/dashboard')"
@@ -56,6 +57,8 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt) {
 						}
 					</div>
 				</div>
+
+				@HabitTimeline(resolvedHabits)
 			}
 		</div>
 
@@ -149,6 +152,21 @@ templ DebtCard(debt engine.SleepDebt) {
 		<div class={ "text-sm mt-3 font-medium capitalize font-mono", debtColor(debt.Category) }>
 			{ string(debt.Category) }
 		</div>
+		if debt.Freshness == engine.FreshnessStale || debt.Freshness == engine.FreshnessInsufficient {
+			<div class="mt-3 text-xs font-mono text-amber-500">
+				{ fmt.Sprintf("%d of 13 nights missing data", debt.GapDays) }
+			</div>
+		} else if debt.Freshness == engine.FreshnessRecent {
+			if debt.LastNightMissing {
+				<div class="mt-3 text-xs font-mono text-gray-500">
+					no sleep data for last night
+				</div>
+			} else {
+				<div class="mt-3 text-xs font-mono text-gray-500">
+					{ fmt.Sprintf("%d of 13 nights missing data", debt.GapDays) }
+				</div>
+			}
+		}
 	</div>
 }
 

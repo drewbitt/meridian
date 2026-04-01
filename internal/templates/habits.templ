@@ -1,0 +1,417 @@
+package templates
+
+import (
+	"strconv"
+	"time"
+	"github.com/drewbitt/meridian/internal/services"
+	"github.com/pocketbase/pocketbase/core"
+)
+
+templ Habits(habits []*core.Record, resolved []services.ResolvedHabit, presets []services.HabitPreset, activePresets map[string]bool, saved bool, deleted bool) {
+	@Layout("Habits") {
+		<div class="mx-auto max-w-2xl space-y-8">
+			if saved {
+				<div id="toast" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Habit saved
+				</div>
+			}
+			if deleted {
+				<div id="toast" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Habit deleted
+				</div>
+			}
+
+			<div>
+				<h2 class="font-display text-2xl text-gray-100">Habits</h2>
+				<p class="text-sm text-gray-400 mt-1">
+					Science-backed habits anchored to your energy schedule. Get notified at the right time.
+				</p>
+			</div>
+
+			// --- Today's Timeline ---
+			if len(resolved) > 0 {
+				<div>
+					<h3 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-3">Today's Timeline</h3>
+					<div class="space-y-1">
+						for _, rh := range resolved {
+							@habitTimelineRow(rh)
+						}
+					</div>
+				</div>
+			}
+
+			// --- Suggested Habits ---
+			<div>
+				<h3 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-1">Suggested Habits</h3>
+				<p class="text-xs text-gray-500 mb-3">One-click enable. Timed to your energy schedule.</p>
+				for _, cat := range []string{"morning", "afternoon", "evening"} {
+					@presetCategory(cat, presets, activePresets)
+				}
+			</div>
+
+			// --- Custom Habits ---
+			if len(habits) > 0 {
+				<div>
+					<h3 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-3">Your Habits</h3>
+					<div class="space-y-2">
+						for _, h := range habits {
+							@habitCard(h)
+						}
+					</div>
+				</div>
+			}
+
+			// --- Add Custom Habit ---
+			<details class="group rounded-lg border border-gray-700/50 bg-night-deep/30">
+				<summary class="px-5 py-4 cursor-pointer text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors select-none">
+					Add custom habit...
+				</summary>
+				<div class="px-5 pb-5 pt-2 border-t border-gray-700/30">
+					@HabitForm(nil)
+				</div>
+			</details>
+		</div>
+	}
+}
+
+templ habitTimelineRow(rh services.ResolvedHabit) {
+	<div class="flex items-center gap-3 rounded-lg bg-night-deep/50 border border-gray-700/50 px-4 py-2.5">
+		<span class={ "text-sm font-mono font-medium w-20 shrink-0", habitTimeColor(rh) }>
+			<local-time datetime={ isoTime(rh.Time) }></local-time>
+		</span>
+		<span class="w-px h-4 bg-gray-700"></span>
+		<span class={ "text-xs", habitIconClass(rh.Habit.Anchor) }>
+			{ habitIcon(rh.Habit.Anchor) }
+		</span>
+		<span class="text-sm text-gray-200">{ rh.Habit.Name }</span>
+		if !rh.Habit.Notify {
+			<span class="text-xs text-gray-600 ml-auto">silent</span>
+		}
+	</div>
+}
+
+templ presetCategory(category string, presets []services.HabitPreset, active map[string]bool) {
+	<div>
+		<div class="text-[10px] font-mono uppercase tracking-widest text-gray-600 mb-2 mt-5 first:mt-0">{ category }</div>
+		<div class="rounded-lg border border-gray-700/50 overflow-hidden divide-y divide-gray-700/30">
+			for _, p := range presets {
+				if p.Category == category {
+					@presetCard(p, active[p.Key])
+				}
+			}
+		</div>
+	</div>
+}
+
+templ presetCard(p services.HabitPreset, isActive bool) {
+	<div style="display:flex;align-items:flex-start;gap:0.75rem" class={ "px-5 py-4",
+		templ.KV("bg-night-deep/30", !isActive),
+		templ.KV("bg-dusk/5", isActive) }>
+		<span style="flex-shrink:0" class={ "text-base mt-0.5", presetIconClass(p.Category) }>{ p.Icon }</span>
+		<div style="flex:1 1 0%;min-width:0">
+			<div class="text-sm font-medium text-gray-200">{ p.Name }</div>
+			<div class="text-xs text-gray-500 mt-1 leading-relaxed">{ p.Description }</div>
+		</div>
+		if isActive {
+			<span style="flex-shrink:0" class="text-[10px] text-dusk font-mono mt-1">active</span>
+		} else {
+			<form method="POST" action="/habits/preset" style="flex-shrink:0;margin-top:0.125rem">
+				<input type="hidden" name="key" value={ p.Key }/>
+				<button type="submit" class="text-xs text-dusk hover:text-white border border-dusk/30 hover:border-dusk/60 rounded-md px-3 py-1.5 transition-colors whitespace-nowrap">
+					Enable
+				</button>
+			</form>
+		}
+	</div>
+}
+
+templ habitCard(h *core.Record) {
+	<div style="display:flex;align-items:center;justify-content:space-between;gap:1rem" class={ "rounded-lg border border-gray-700 bg-night-deep/50 px-5 py-4",
+		templ.KV("opacity-50", !h.GetBool("enabled")) }>
+		<div style="min-width:0">
+			<span class="text-sm font-medium text-gray-200">{ h.GetString("name") }</span>
+			<span class="ml-2 text-xs text-gray-500">
+				{ anchorLabel(h.GetString("anchor"), h.GetInt("offset_minutes"), h.GetString("custom_time")) }
+			</span>
+			if h.GetBool("notify") {
+				<span class="ml-1 text-xs text-gray-500" title="Notifications on">🔔</span>
+			}
+			if !h.GetBool("enabled") {
+				<span class="ml-2 text-xs text-gray-500 italic">(disabled)</span>
+			}
+		</div>
+		<div style="display:flex;align-items:center;gap:0.75rem;flex-shrink:0">
+			<a href={ templ.SafeURL("/habits/" + h.Id + "/edit") } class="text-xs text-gray-500 hover:text-gray-300 transition-colors">Edit</a>
+			<form method="POST" action={ templ.SafeURL("/habits/" + h.Id + "/delete") } style="display:flex">
+				<button type="submit" class="text-xs text-gray-500 hover:text-dawn transition-colors" onclick="return confirm('Delete this habit?')">Delete</button>
+			</form>
+		</div>
+	</div>
+}
+
+templ HabitEdit(habit *core.Record) {
+	@Layout("Edit Habit") {
+		<div class="mx-auto max-w-lg space-y-6">
+			<h2 class="font-display text-2xl text-gray-100">Edit Habit</h2>
+			<div class="rounded-lg border border-gray-700 bg-night-deep/50 p-5">
+				@HabitForm(habit)
+			</div>
+			<a href="/habits" class="text-sm text-gray-400 hover:text-gray-200">Back to habits</a>
+		</div>
+	}
+}
+
+templ HabitForm(habit *core.Record) {
+	<form method="POST" action={ templ.SafeURL(habitFormAction(habit)) } class="space-y-3">
+		<div>
+			<label for="name" class="block text-xs font-medium text-gray-500 mb-1">Name</label>
+			<input
+				type="text"
+				id="name"
+				name="name"
+				required
+				class="input-field"
+				placeholder="e.g. Workout, Evening routine"
+				value={ habitVal(habit, "name") }
+			/>
+		</div>
+		<div>
+			<label for="anchor" class="block text-xs font-medium text-gray-500 mb-1">Anchor to</label>
+			<select id="anchor" name="anchor" class="input-field" onchange="toggleCustomTime(this)">
+				for _, a := range services.AllAnchors {
+					<option value={ a.Value } selected?={ habitVal(habit, "anchor") == a.Value || (habitVal(habit, "anchor") == "" && a.Value == "morning_wake") }>{ a.Label }</option>
+				}
+			</select>
+		</div>
+		<div id="offset-row">
+			<label for="offset_minutes" class="block text-xs font-medium text-gray-500 mb-1">
+				Offset (minutes)
+			</label>
+			<input
+				type="number"
+				id="offset_minutes"
+				name="offset_minutes"
+				class="input-field"
+				value={ habitVal(habit, "offset_minutes") }
+				placeholder="0"
+			/>
+		</div>
+		<div id="custom-time-row" style="display:none">
+			<label for="custom_time" class="block text-xs font-medium text-gray-500 mb-1">Time (24h)</label>
+			<input
+				type="time"
+				id="custom_time"
+				name="custom_time"
+				class="input-field"
+				value={ habitVal(habit, "custom_time") }
+			/>
+		</div>
+		<div style="display:flex;align-items:center;gap:1rem;justify-content:space-between;flex-wrap:wrap">
+			<div style="display:flex;gap:1rem">
+				<label class="flex items-center gap-2 text-xs text-gray-400">
+					<input type="checkbox" name="notify" checked?={ habit != nil && habit.GetBool("notify") || habit == nil }/>
+					Notify
+				</label>
+				<label class="flex items-center gap-2 text-xs text-gray-400">
+					<input type="checkbox" name="enabled" checked?={ habit != nil && habit.GetBool("enabled") || habit == nil }/>
+					Enabled
+				</label>
+			</div>
+			<button type="submit" class="text-xs text-dusk hover:text-white border border-dusk/30 hover:border-dusk/60 rounded-md px-4 py-1.5 transition-colors whitespace-nowrap">
+				if habit != nil {
+					Save
+				} else {
+					Add Habit
+				}
+			</button>
+		</div>
+		<script type="module">
+			function toggleCustomTime(el) {
+				document.getElementById('custom-time-row').style.display = el.value === 'custom' ? '' : 'none';
+				document.getElementById('offset-row').style.display = el.value === 'custom' ? 'none' : '';
+			}
+			toggleCustomTime(document.getElementById('anchor'));
+			window.toggleCustomTime = toggleCustomTime;
+		</script>
+	</form>
+}
+
+func habitFormAction(habit *core.Record) string {
+	if habit != nil {
+		return "/habits/" + habit.Id + "/edit"
+	}
+	return "/habits"
+}
+
+func habitVal(habit *core.Record, field string) string {
+	if habit == nil {
+		return ""
+	}
+	return habit.GetString(field)
+}
+
+func anchorLabel(anchor string, offset int, customTime string) string {
+	labels := map[string]string{
+		"morning_wake":     "Wake",
+		"best_focus":       "Focus window",
+		"morning_peak":     "Morning peak",
+		"afternoon_dip":    "Afternoon dip",
+		"nap_window":       "Nap window",
+		"evening_peak":     "Evening peak",
+		"caffeine_cutoff":  "Caffeine cutoff",
+		"sunset":           "Sunset",
+		"sunrise":          "Sunrise",
+		"melatonin_window": "Melatonin",
+		"custom":           customTime,
+	}
+	label := labels[anchor]
+	if label == "" {
+		label = anchor
+	}
+	if anchor == "custom" {
+		return "@ " + label
+	}
+	if offset > 0 {
+		return label + " +" + strconv.Itoa(offset) + "m"
+	} else if offset < 0 {
+		return label + " " + strconv.Itoa(offset) + "m"
+	}
+	return label
+}
+
+func habitTimeColor(rh services.ResolvedHabit) string {
+	now := time.Now()
+	if rh.Time.Before(now) {
+		return "text-gray-600"
+	}
+	switch rh.Habit.Anchor {
+	case "morning_wake", "sunrise", "morning_peak", "best_focus":
+		return "text-noon"
+	case "afternoon_dip", "nap_window", "evening_peak", "caffeine_cutoff":
+		return "text-ember"
+	case "sunset", "melatonin_window":
+		return "text-twilight"
+	default:
+		return "text-dusk"
+	}
+}
+
+func habitIcon(anchor string) string {
+	icons := map[string]string{
+		"morning_wake":     "☀",
+		"best_focus":       "◎",
+		"morning_peak":     "▲",
+		"afternoon_dip":    "▽",
+		"nap_window":       "☾",
+		"evening_peak":     "⚡",
+		"caffeine_cutoff":  "☕",
+		"sunset":           "🌅",
+		"sunrise":          "🌄",
+		"melatonin_window": "🌙",
+		"custom":           "⏰",
+	}
+	if icon, ok := icons[anchor]; ok {
+		return icon
+	}
+	return "•"
+}
+
+func habitIconClass(anchor string) string {
+	switch anchor {
+	case "morning_wake", "sunrise", "morning_peak", "best_focus":
+		return "text-noon"
+	case "afternoon_dip", "nap_window", "evening_peak", "caffeine_cutoff":
+		return "text-ember"
+	case "sunset", "melatonin_window":
+		return "text-twilight"
+	default:
+		return "text-dusk"
+	}
+}
+
+func presetIconClass(category string) string {
+	switch category {
+	case "morning":
+		return "text-noon"
+	case "afternoon":
+		return "text-ember"
+	case "evening":
+		return "text-twilight"
+	default:
+		return "text-gray-400"
+	}
+}
+
+// HabitTimeline is a component for rendering resolved habits on the dashboard.
+templ HabitTimeline(resolved []services.ResolvedHabit) {
+	if len(resolved) > 0 {
+		<div id="habit-timeline">
+			<h2 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-3">Upcoming Habits</h2>
+			<div class="grid grid-cols-2 gap-px bg-night-border rounded-lg overflow-hidden sm:grid-cols-3 lg:grid-cols-4">
+				for _, rh := range resolved {
+					if !rh.Time.Before(time.Now()) {
+						<div class={ "bg-night p-4 border-t-2", habitBorderColor(rh.Habit.Anchor) }>
+							<div class="text-xs font-mono uppercase tracking-widest text-gray-600">{ rh.Habit.Name }</div>
+							<div class={ "text-sm font-semibold mt-1.5 font-mono", habitTextColor(rh.Habit.Anchor) }>
+								<local-time datetime={ isoTime(rh.Time) }></local-time>
+							</div>
+						</div>
+					}
+				}
+			</div>
+		</div>
+	}
+}
+
+func habitBorderColor(anchor string) string {
+	switch anchor {
+	case "morning_wake", "sunrise", "morning_peak", "best_focus":
+		return "border-t-noon"
+	case "afternoon_dip", "nap_window":
+		return "border-t-horizon"
+	case "evening_peak", "caffeine_cutoff":
+		return "border-t-ember"
+	case "sunset", "melatonin_window":
+		return "border-t-twilight"
+	default:
+		return "border-t-dusk"
+	}
+}
+
+func habitTextColor(anchor string) string {
+	switch anchor {
+	case "morning_wake", "sunrise", "morning_peak", "best_focus":
+		return "text-noon"
+	case "afternoon_dip", "nap_window":
+		return "text-horizon"
+	case "evening_peak", "caffeine_cutoff":
+		return "text-ember"
+	case "sunset", "melatonin_window":
+		return "text-twilight"
+	default:
+		return "text-dusk"
+	}
+}
+
+// DashboardHabitsCount returns the number of upcoming habits (used to decide
+// whether to render the section on the dashboard, avoiding an empty container).
+func DashboardHabitsCount(resolved []services.ResolvedHabit) int {
+	n := 0
+	now := time.Now()
+	for _, rh := range resolved {
+		if !rh.Time.Before(now) {
+			n++
+		}
+	}
+	return n
+}
+
+// FormatHabitTimeISO returns the ISO time string for use in templates.
+func FormatHabitTimeISO(t time.Time) string {
+	return isoTime(t)
+}
+
+// IsUpcoming returns true if the given time is in the future.
+func IsUpcoming(t time.Time) bool {
+	return !t.Before(time.Now())
+}
