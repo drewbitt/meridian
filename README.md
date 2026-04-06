@@ -138,6 +138,16 @@ No setup beyond cloning. The [mise](https://mise.jdx.dev/) bootstrap script in `
 ./bin/mise tasks       # list all commands
 ```
 
+## Agent Skills
+
+This repo includes [samber/cc-skills-golang](https://github.com/samber/cc-skills-golang) as a Git submodule at `.agents/skills/`. These skills are auto-discovered by OpenCode, Claude Code, and other agents that follow the [agentskills.io](https://agentskills.io) spec.
+
+```bash
+git submodule update --remote  # pull latest skill updates
+```
+
+**35 skills** covering Go best practices — tested against a baseline, **+44pp improvement** in agent task quality (98% vs 54%). See individual skills in `.agents/skills/skills/<name>/SKILL.md`.
+
 ## License
 
 [AGPL-3.0](LICENSE)
