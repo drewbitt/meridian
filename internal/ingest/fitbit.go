@@ -16,12 +16,40 @@ import (
 var (
 	errFitbitAPI = errors.New("fitbit API error")
 	// ErrTokenRevoked indicates the Fitbit refresh token has been permanently invalidated.
+	// Code should use errors.Is(err, ErrTokenRevoked) to check for this condition.
 	ErrTokenRevoked = errors.New("fitbit token permanently invalid, re-authorization required")
+
 	// ErrRateLimited indicates the Fitbit API rate limit was exceeded.
 	ErrRateLimited = errors.New("fitbit API rate limited")
 	// ErrSleepPending indicates sleep data is still being classified by Fitbit.
 	ErrSleepPending = errors.New("fitbit sleep data still being classified")
 )
+
+// fitbitInvalidGrantError wraps an oauth2.RetrieveError and implements
+// Is(ErrTokenRevoked) so errors.Is catches it, plus As(*oauth2.RetrieveError)
+// so the underlying error is accessible — all from a single chain.
+type fitbitInvalidGrantError struct {
+	orig error // *oauth2.RetrieveError
+}
+
+func (e *fitbitInvalidGrantError) Error() string { return e.orig.Error() }
+func (e *fitbitInvalidGrantError) Unwrap() error { return e.orig }
+
+func (e *fitbitInvalidGrantError) Is(target error) bool {
+	return target == ErrTokenRevoked
+}
+
+func (e *fitbitInvalidGrantError) As(target any) bool {
+	re, ok := target.(*oauth2.RetrieveError)
+	if !ok {
+		return false
+	}
+	if origRE, ok := e.orig.(*oauth2.RetrieveError); ok {
+		*re = *origRE
+		return true
+	}
+	return false
+}
 
 // NewFitbitOAuthConfig creates a per-user Fitbit OAuth2 config.
 func NewFitbitOAuthConfig(clientID, clientSecret, redirectURL string) *oauth2.Config {
@@ -206,7 +234,7 @@ func RefreshFitbitToken(ctx context.Context, cfg *oauth2.Config, token *oauth2.T
 	newToken, err := src.Token()
 	if err != nil {
 		if isFitbitInvalidGrant(err) {
-			return nil, fmt.Errorf("refresh fitbit token: %w", ErrTokenRevoked)
+			return nil, fmt.Errorf("refresh fitbit token: %w", &fitbitInvalidGrantError{orig: err})
 		}
 		return nil, fmt.Errorf("refresh fitbit token: %w", err)
 	}
