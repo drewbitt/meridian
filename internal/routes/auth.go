@@ -100,7 +100,8 @@ func registerAuthRoutes(se *core.ServeEvent, app core.App) {
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
+			SameSite: http.SameSiteStrictMode,
+			Secure:   true,
 			MaxAge:   -1,
 		})
 		return re.Redirect(http.StatusSeeOther, "/login")

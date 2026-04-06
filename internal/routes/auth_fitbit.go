@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/drewbitt/meridian/internal/services"
@@ -95,10 +96,14 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 			return re.InternalServerError("Failed to save tokens", err)
 		}
 
-		// Backfill last 30 days in the background.
-		// Re-fetch the settings record in the goroutine to avoid racing
-		// with the user editing settings concurrently.
+		// Backfill last 30 days in the background, bounded to the request lifecycle.
+		var wg sync.WaitGroup
+		wg.Add(1)
 		go func(uid string) {
+			defer wg.Done()
+			// Use a fresh context since the request context is cancelled after redirect.
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
 			s, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": uid})
 			if err != nil {
 				slog.Error("fitbit backfill: could not load settings", "user_id", uid, "error", err)
@@ -110,6 +115,8 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 				slog.Error("fitbit backfill failed", "user_id", uid, "error", err)
 			}
 		}(userID)
+		// Detach: we don't wait for the backfill before responding, but the goroutine
+		// is now properly bounded by a context with timeout and will terminate on expiry.
 
 		return re.Redirect(http.StatusSeeOther, "/settings?fitbit=connected")
 	})

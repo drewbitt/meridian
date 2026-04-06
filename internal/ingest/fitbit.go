@@ -206,7 +206,7 @@ func RefreshFitbitToken(ctx context.Context, cfg *oauth2.Config, token *oauth2.T
 	newToken, err := src.Token()
 	if err != nil {
 		if isFitbitInvalidGrant(err) {
-			return nil, fmt.Errorf("refresh fitbit token: %w: %w", ErrTokenRevoked, err)
+			return nil, fmt.Errorf("refresh fitbit token: %w", ErrTokenRevoked)
 		}
 		return nil, fmt.Errorf("refresh fitbit token: %w", err)
 	}
