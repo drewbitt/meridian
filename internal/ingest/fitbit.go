@@ -44,9 +44,9 @@ func (e *fitbitInvalidGrantError) As(target any) bool {
 	if !ok {
 		return false
 	}
-	var origRE oauth2.RetrieveError
+	var origRE *oauth2.RetrieveError
 	if errors.As(e.orig, &origRE) {
-		*re = origRE
+		*re = *origRE
 		return true
 	}
 	return false
