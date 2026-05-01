@@ -9,7 +9,7 @@ require (
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
 	github.com/starfederation/datastar-go v1.1.0
 	golang.org/x/oauth2 v0.36.0
-	modernc.org/sqlite v1.48.0
+	modernc.org/sqlite v1.50.0
 )
 
 require (
