@@ -1,5 +1,5 @@
 [tools]
-"github:tailwindlabs/tailwindcss" = "4.2.2"
+"github:tailwindlabs/tailwindcss" = "4.3.0"
 go = "1.26"
 "go:github.com/a-h/templ/cmd/templ" = "latest"
 "go:github.com/air-verse/air" = "latest"
