@@ -1,13 +1,11 @@
 # syntax=docker/dockerfile:1
-FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.5-bookworm AS build
 
 ARG TARGETOS TARGETARCH
-ARG TAILWIND_VERSION=4.2.2
-ARG TEMPL_VERSION=v0.3.1001
+# renovate: datasource=github-releases depName=tailwindlabs/tailwindcss
+ARG TAILWIND_VERSION=4.3.3
 
 WORKDIR /src
-
-RUN go install github.com/a-h/templ/cmd/templ@${TEMPL_VERSION}
 
 RUN ARCH=$(uname -m) && \
     case "$ARCH" in \
@@ -21,6 +19,10 @@ RUN ARCH=$(uname -m) && \
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    TEMPL_VERSION="$(go list -m -f '{{.Version}}' github.com/a-h/templ)" && \
+    go install github.com/a-h/templ/cmd/templ@"${TEMPL_VERSION}"
 
 COPY . .
 
@@ -54,16 +56,9 @@ COPY --from=build --chown=65532:65532 /pb_data /pb_data
 
 ENV ALLOW_REGISTRATION=true
 
-# Optional: encrypt PocketBase settings at rest (SMTP creds, OAuth tokens, etc.)
-# Protects against leaked backups/volumes. Omitted for now to keep DB inspectable
-# during development. To enable, set PB_ENCRYPTION_KEY to a random 32-char string
-# and uncomment the ENV + update CMD below.
-# ENV PB_ENCRYPTION_KEY=""
-# CMD ["/app", "serve", "--http=0.0.0.0:8090", "--encryptionEnv=PB_ENCRYPTION_KEY"]
-
 EXPOSE 8090
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD ["/healthcheck"]
 
-CMD ["/app", "serve", "--http=0.0.0.0:8090"]
+CMD ["/app", "serve", "--http=0.0.0.0:8090", "--dir=/pb_data"]

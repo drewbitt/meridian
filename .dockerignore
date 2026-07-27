@@ -1,5 +1,8 @@
 .git
 .github
+.agents
+.claude
+.mise
 .air.toml
 .dockerignore
 .env
@@ -8,6 +11,7 @@
 Dockerfile
 README.md
 mise.toml
+mise.*.local.toml
 meridian
 tmp
 pb_data

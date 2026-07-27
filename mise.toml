@@ -1,10 +1,10 @@
 [tools]
-"github:tailwindlabs/tailwindcss" = "4.2.2"
-go = "1.26"
-"go:github.com/a-h/templ/cmd/templ" = "latest"
-"go:github.com/air-verse/air" = "latest"
-golangci-lint = "2.11.4"
-git-cliff = "latest"
+"github:tailwindlabs/tailwindcss" = "4.3.3"
+go = "1.26.5"
+"go:github.com/a-h/templ/cmd/templ" = "0.3.1020"
+"go:github.com/air-verse/air" = "1.65.3"
+golangci-lint = "2.12.2"
+git-cliff = "2.13.1"
 
 [hooks]
 enter = 'git config core.hooksPath .githooks 2>/dev/null || true'
@@ -40,8 +40,8 @@ mkdir -p assets/dist
 templ generate
 tailwindcss -i assets/input.css -o assets/dist/styles.min.css --minify
 """
-sources = ["templates/**/*.templ", "assets/input.css"]
-outputs = ["assets/dist/styles.min.css"]
+sources = ["internal/templates/**/*.templ", "assets/input.css"]
+outputs = ["internal/templates/**/*_templ.go", "assets/dist/styles.min.css"]
 
 # ── Build ─────────────────────────────────────────────────────
 
@@ -56,16 +56,19 @@ outputs = ["meridian"]
 
 [tasks.test]
 description = "Run all tests"
+depends = ["generate"]
 run = "go test -race ./..."
 env = { CGO_ENABLED = "1" }
 
 [tasks."test:verbose"]
 description = "Run all tests with verbose output"
+depends = ["generate"]
 run = "go test -race -v ./..."
 env = { CGO_ENABLED = "1" }
 
 [tasks."test:engine"]
 description = "Run engine tests only"
+depends = ["generate"]
 run = "go test -race -v ./internal/engine/"
 env = { CGO_ENABLED = "1" }
 
@@ -89,14 +92,19 @@ run = "golangci-lint fmt ./..."
 description = "Tidy go.mod"
 run = "go mod tidy"
 
+[tasks."tidy:check"]
+description = "Check that go.mod and go.sum are tidy"
+run = "go mod tidy -diff"
+
+[tasks.check]
+description = "Run generation, lint, tests, build, and module checks"
+depends = ["lint", "test", "build", "tidy:check"]
+
 # ── Git hooks ─────────────────────────────────────────────────
 
 [tasks.pre-commit]
-description = "Pre-commit checks (lint + tidy)"
-run = """
-golangci-lint run ./...
-go mod tidy -diff
-"""
+description = "Run the same checks as CI"
+depends = ["check"]
 
 # ── Release ───────────────────────────────────────────────────
 

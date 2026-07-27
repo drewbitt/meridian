@@ -1,0 +1,23 @@
+services:
+  meridian:
+    image: ghcr.io/drewbitt/meridian:latest
+    build:
+      context: .
+    ports:
+      - "${MERIDIAN_PORT:-8090}:8090"
+    environment:
+      ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-true}"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - meridian-data:/pb_data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  meridian-data:

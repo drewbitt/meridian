@@ -4,6 +4,9 @@
 	configMigration: true,
 	platformAutomerge: true,
 	postUpdateOptions: ['gomodTidy'],
+	constraints: {
+		go: '1.26'
+	},
 	minimumReleaseAge: '3 days',
 	prConcurrentLimit: 5,
 	timezone: 'America/New_York',
@@ -14,6 +17,17 @@
 		schedule: ['at any time']
 	},
 	labels: ['dependencies'],
+	customManagers: [
+		{
+			customType: 'regex',
+			description: 'Update version arguments documented with Renovate comments',
+			managerFilePatterns: ['/(^|/)Dockerfile$/'],
+			matchStrings: [
+				'# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ARG TAILWIND_VERSION=(?<currentValue>\\S+)'
+			],
+			versioningTemplate: 'semver'
+		}
+	],
 	packageRules: [
 		{
 			matchUpdateTypes: ['minor', 'patch', 'pin', 'digest'],
@@ -23,6 +37,26 @@
 		{
 			matchUpdateTypes: ['major'],
 			dependencyDashboardApproval: true
+		},
+		{
+			description: 'Keep the templ generator and Go module on the same version',
+			matchPackageNames: ['/^github\\.com\\/a-h\\/templ(?:\\/cmd\\/templ)?$/'],
+			groupName: 'templ'
+		},
+		{
+			description: 'Keep Tailwind versions in mise and Docker aligned',
+			matchPackageNames: ['tailwindlabs/tailwindcss'],
+			groupName: 'tailwindcss'
+		},
+		{
+			description: 'Keep Go toolchain versions aligned',
+			matchPackageNames: ['go', 'golang'],
+			groupName: 'Go toolchain'
+		},
+		{
+			description: 'Only propose Go modules supported by the project Go version',
+			matchManagers: ['gomod'],
+			constraintsFiltering: 'strict'
 		},
 		{
 			matchDatasources: ['go'],

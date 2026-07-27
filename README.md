@@ -3,151 +3,171 @@
 [![CI](https://github.com/drewbitt/meridian/actions/workflows/ci.yml/badge.svg)](https://github.com/drewbitt/meridian/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/github/license/drewbitt/meridian)](LICENSE)
 
-Self-hosted sleep and energy tracker. Meridian turns sleep data into alertness forecasts, tracks sleep debt, and sends timed notifications via ntfy.
+Meridian is a self-hosted sleep tracker that estimates how your energy will change during the day. It stores everything in PocketBase, runs as one Go binary, and can send reminders through [ntfy](https://ntfy.sh).
 
-One Go binary. One SQLite file.
+Meridian can:
 
-## Quick Start
+- calculate alertness and sleep debt from recent sleep
+- show likely focus periods, energy dips, and wind-down times
+- import Fitbit, Health Connect, Apple Health, and Gadgetbridge data
+- schedule personal habits around your predicted energy
+- send caffeine, nap, focus, and bedtime notifications
 
-### Docker
+The model is an estimate, not medical advice or a diagnosis.
+
+## Run Meridian
+
+Docker Compose is the easiest way to keep the database and configuration together.
+
+```bash
+git clone https://github.com/drewbitt/meridian.git
+cd meridian
+cp .env.example .env
+docker compose up -d
+docker compose logs -f meridian
+```
+
+Open [http://localhost:8090](http://localhost:8090). PocketBase prints a setup link on the first launch. Use it to create the superuser, then register your Meridian account at `/register`.
+
+New registrations are enabled by default so the first account can be created. Once your account works, edit `.env`:
+
+```dotenv
+ALLOW_REGISTRATION=false
+```
+
+Apply the change with:
+
+```bash
+docker compose up -d
+```
+
+The compose service runs as an unprivileged user with a read-only root filesystem. Application data is kept in the `meridian-data` volume at `/pb_data`.
+
+### Run without Compose
 
 ```bash
 docker run -d \
   --name meridian \
-  -p 8090:8090 \
-  -v meridian_data:/pb_data \
+  --publish 8090:8090 \
+  --volume meridian-data:/pb_data \
+  --env ALLOW_REGISTRATION=true \
+  --env TZ=America/New_York \
+  --read-only \
+  --tmpfs /tmp \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --restart unless-stopped \
   ghcr.io/drewbitt/meridian:latest
 ```
 
-Then open `http://localhost:8090`.
-
-On first launch, PocketBase will print a one-time setup URL to create a superuser account — open it in your browser. The log also suggests a CLI command, but that won't work because the image is distroless (no shell). Use the browser URL instead.
-
-After that, register a regular user account at `/register` and log your first night of sleep.
-
-Once you've registered, disable public signups:
-
-```bash
-docker run -d \
-  --name meridian \
-  -p 8090:8090 \
-  -e ALLOW_REGISTRATION=false \
-  -v meridian_data:/pb_data \
-  ghcr.io/drewbitt/meridian:latest
-```
-
-### Docker Compose
-
-```yaml
-services:
-  meridian:
-    image: ghcr.io/drewbitt/meridian:latest
-    ports:
-      - "8090:8090"
-    volumes:
-      - meridian_data:/pb_data
-    environment:
-      - ALLOW_REGISTRATION=false  # set to true for first run
-      - TZ=America/New_York       # your timezone
-    restart: unless-stopped
-
-volumes:
-  meridian_data:
-```
-
-### Build from source
-
-```bash
-docker build -t meridian .
-docker run -d -p 8090:8090 -v meridian_data:/pb_data meridian
-```
-
-Data lives in `/pb_data` (SQLite database + uploads). Back up this directory.
-
-## Features
-
-- FIPS Three Process Model for alertness prediction (homeostatic pressure, circadian rhythm, post-lunch dip, sleep inertia)
-- 14-day weighted sleep debt -- recent nights count more, accuracy improves with more data
-- Energy zones: morning peak, afternoon dip, evening peak, wind-down, melatonin window
-- Notifications via [ntfy](https://ntfy.sh) -- caffeine cutoff, focus windows, energy dips, bedtime
-- 5 data sources: manual entry, Fitbit (OAuth2, auto-sync every 4h), Health Connect, Apple Health, Gadgetbridge
-- Dark-themed dashboard with real-time energy curve (Chart.js + Datastar SSE)
-
-## Data Sources
-
-| Source | Method | Sync |
-|---|---|---|
-| Manual | Web form | -- |
-| Fitbit | OAuth2 | Every 4 hours |
-| Health Connect | JSON upload | Manual |
-| Apple Health | ZIP/XML upload | Manual |
-| Gadgetbridge | SQLite upload | Manual |
-
-## Fitbit Setup
-
-1. Create a Personal app at [dev.fitbit.com/apps/new](https://dev.fitbit.com/apps/new)
-2. Callback URL: `https://your-domain/auth/fitbit/callback` (or `http://localhost:8090/auth/fitbit/callback` locally)
-3. Default Access Type: Read-Only (other URL fields can be placeholders)
-4. Copy Client ID and Client Secret into Settings, save, click Connect
-
-Backfills the last 30 days on first connect.
-
-> Fitbit's Web API is [scheduled for deprecation in September 2026](https://dev.fitbit.com/build/reference/web-api/).
+After creating your account, recreate the container with `ALLOW_REGISTRATION=false`.
 
 ## Configuration
 
-| Variable | Default | Description |
+| Variable | Default | Purpose |
 |---|---|---|
-| `ALLOW_REGISTRATION` | `true` | Set to `false` (or `no`, `off`, `0`) to disable new account creation |
-| `TZ` | `UTC` | Timezone for cron jobs (e.g. `America/New_York`) |
+| `ALLOW_REGISTRATION` | `true` | Accepts `true`, `false`, `yes`, `no`, `on`, `off`, `1`, or `0`. Disable it after creating the accounts you need. |
+| `TZ` | `UTC` | Server time zone used when a user has not saved one, such as `America/New_York`. |
+| `MERIDIAN_PORT` | `8090` | Host port used by `compose.yaml`. This is not read by the application itself. |
 
-Per-user settings are on the Settings page:
+User-specific options live on the Settings page:
 
-- Timezone (e.g. `America/New_York`) — auto-detected from Fitbit or browser, falls back to server `TZ`
-- Sleep need (default 8 hours)
+- time zone and sleep need
+- location for sunrise and sunset calculations
 - ntfy server, topic, and access token
-- Fitbit OAuth2 credentials
-- File imports for Health Connect, Apple Health, and Gadgetbridge
+- Fitbit OAuth credentials
+- file imports for Health Connect, Apple Health, and Gadgetbridge
 
-PocketBase admin panel is at `/_/` for superuser operations.
+The PocketBase superuser panel is available at `/_/`.
 
-## Stack
+## Updates and backups
 
-| Layer | Technology |
-|---|---|
-| Backend | [PocketBase](https://pocketbase.io) (Go) -- auth, cron, SQLite, admin |
-| Frontend | [Datastar](https://data-star.dev) + [Templ](https://templ.guide) + Tailwind CSS |
-| Engine | FIPS Three Process Model in Go (~250 lines) |
-| Notifications | [ntfy](https://ntfy.sh) (single HTTP POST) |
-| Database | SQLite (embedded) |
+Update the container with:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Back up `/pb_data` before an update. It contains the SQLite database, uploaded files, and PocketBase state. Stop the service while copying the directory so the backup is consistent:
+
+```bash
+docker compose stop
+docker compose cp meridian:/pb_data ./meridian-backup
+docker compose start
+```
+
+Keep the backup somewhere outside the host running Meridian. To restore it, stop Meridian and copy the saved contents back into `/pb_data`.
+
+## Data sources
+
+| Source | Import method | Schedule |
+|---|---|---|
+| Manual | Sleep entry form | On demand |
+| Fitbit | OAuth 2.0 | Every 30 minutes |
+| Health Connect | JSON upload | On demand |
+| Apple Health | ZIP or XML upload | On demand |
+| Gadgetbridge | SQLite upload | On demand |
+
+### Fitbit
+
+1. Create a Personal app at [dev.fitbit.com/apps/new](https://dev.fitbit.com/apps/new).
+2. Set the callback URL to `https://your-domain/auth/fitbit/callback`. For local use, enter `http://localhost:8090/auth/fitbit/callback`.
+3. Choose Read-Only as the default access type.
+4. Save the client ID and client secret on Meridian's Settings page, then select Connect.
+
+The first connection imports the previous 30 days. Later syncs run every 30 minutes and reread the last three days to catch delayed Fitbit records.
+
+Fitbit says its Web API will be deprecated in September 2026. Existing Fitbit support may need to change when Google publishes its replacement.
 
 ## Development
 
-```bash
-./bin/mise install    # installs Go, templ, air, tailwind
-./bin/mise run dev    # templ watch + tailwind watch + hot reload
-```
-
-No setup beyond cloning. The [mise](https://mise.jdx.dev/) bootstrap script in `bin/` handles everything. Git hooks auto-configure on directory entry.
-
-`http://localhost:8090` for the app, `/_/` for the PocketBase admin.
+The repository uses [mise](https://mise.jdx.dev/) to pin Go, templ, Tailwind CSS, Air, golangci-lint, and git-cliff. The bootstrap script downloads mise into the repository, so a global install is optional.
 
 ```bash
-./bin/mise run test
-./bin/mise run build   # -> ./meridian
-./bin/mise tasks       # list all commands
+git clone --recurse-submodules https://github.com/drewbitt/meridian.git
+cd meridian
+./bin/mise install
+./bin/mise run dev
 ```
 
-## Agent Skills
+The development server is at [http://localhost:8090](http://localhost:8090). Air reloads the Go process while templ and Tailwind watch their source files.
 
-This repo includes [samber/cc-skills-golang](https://github.com/samber/cc-skills-golang) as a Git submodule at `.agents/skills/`. These skills are auto-discovered by OpenCode, Claude Code, and other agents that follow the [agentskills.io](https://agentskills.io) spec.
+Useful tasks:
 
 ```bash
-git submodule update --remote  # pull latest skill updates
+./bin/mise run generate    # regenerate templ code and CSS
+./bin/mise run test        # run tests with the race detector
+./bin/mise run lint        # run golangci-lint
+./bin/mise run build       # create ./meridian
+./bin/mise run check       # run the complete local CI suite
+./bin/mise tasks           # list every task
 ```
 
-**35 skills** covering Go best practices — tested against a baseline, **+44pp improvement** in agent task quality (98% vs 54%). See individual skills in `.agents/skills/skills/<name>/SKILL.md`.
+The checked-in pre-commit hook runs the same `check` task as CI. Entering the repository through mise configures Git to use `.githooks`.
+
+To build and run the production image locally:
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+## How it is put together
+
+| Part | Technology |
+|---|---|
+| Application and database | [PocketBase](https://pocketbase.io) with SQLite |
+| Server-rendered UI | [templ](https://templ.guide) |
+| Browser updates | [Datastar](https://data-star.dev) |
+| Styling | [Tailwind CSS](https://tailwindcss.com) |
+| Notifications | [ntfy](https://ntfy.sh) |
+| Energy model | FIPS Three Process Model implemented in Go |
+
+Templates and CSS are generated before every build, lint, or test task. The generated files are ignored by Git and embedded into the final binary.
+
+The optional `.agents/skills` submodule contains Go guidance for coding agents. It is not needed to build or run Meridian.
 
 ## License
 
-[AGPL-3.0](LICENSE)
+Meridian is licensed under the [GNU Affero General Public License v3.0](LICENSE).
