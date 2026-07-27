@@ -57,29 +57,11 @@ type TPMParams struct {
 	SInitial float64
 }
 
-// DefaultParams returns the model parameter set based on Ingre et al. (2014),
-// PLoS ONE 9(10) e108679, with one deliberate deviation documented below.
-//
-// All S, C, W, and KSS parameters match the published paper and the
-// humanfactors/FIPS R package exactly.
-//
-// UAmplitude is set to 0.8 (published value: 0.5). This deliberate increase
-// produces the dual-peak energy curve (morning peak + evening peak with
-// afternoon dip) that matches RISE-style visualizations and real-world
-// experience. Justification:
-//
-//   - With Ua=0.5, the additive model produces a monotonic rise from morning
-//     to late afternoon — no visible afternoon dip. The U nadir at ~1pm is
-//     entirely masked by C's simultaneous rise.
-//   - Ingre et al. found that U is partly compensatory for chronotype misfit
-//     (Table 2: model CT makes U redundant). The published Ua=0.5 was fit
-//     to noisy KSS data, not optimized for curve-shape fidelity.
-//   - Real-world afternoon dips produce ~1-2 KSS points of increased
-//     sleepiness (Monk 2005), corresponding to ~1.7-3.3 alertness units.
-//     Ua=0.8 produces a ~0.25-unit dip, which is still conservative.
-//   - RISE uses a multiplicative model (SAFTE) where dual peaks emerge
-//     naturally from S×C. In our additive model, Ua≥0.75 is needed for
-//     the morning peak to appear as a local maximum.
+// DefaultParams returns the published Ingre et al. (2014) parameter set used
+// by the humanfactors/FIPS R package. Meridian does not inflate U merely to
+// force a visually stronger two-peak curve: the post-lunch dip is not equally
+// prominent for every person, task, or day, and model shape should not imply
+// more certainty than the source parameters support.
 func DefaultParams() TPMParams {
 	return TPMParams{
 		SLowerAsymptote: 2.4,
@@ -94,7 +76,7 @@ func DefaultParams() TPMParams {
 		CAcrophase: 16.8,
 
 		UMean:       -0.5,
-		UAmplitude:  0.8,
+		UAmplitude:  0.5,
 		UPhaseShift: 3.0,
 
 		WCoefficient: -5.72,
@@ -243,8 +225,8 @@ func PredictEnergy(params TPMParams, sleepPeriods []SleepPeriod, predStart, pred
 				// Phase 2: step-by-step exponential recovery toward upper asymptote.
 				// Note: On the step that transitions from Phase 1, both branches
 				// execute — this adds ~0.007 units of extra recovery at the crossover.
-				// Keeping this behavior as-is: the magnitude is negligible (< 0.1%)
-				// and it helps maintain the visible afternoon dip in the curve.
+				// Keeping this behavior as-is because the magnitude is negligible
+				// (< 0.1%), not to tune any desired visual curve shape.
 				// Uses the same form as wake decay — each step moves S closer to ha
 				// from its current value, avoiding the snap-to-breakLevel bug that
 				// occurred with the absolute formula when S > breakLevel at sleep onset.

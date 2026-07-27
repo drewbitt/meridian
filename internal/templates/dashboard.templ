@@ -11,19 +11,21 @@ import (
 templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits []services.ResolvedHabit) {
 	@Layout("Dashboard") {
 		<div class="space-y-8">
-			<div class="grid grid-cols-1 gap-8 lg:grid-cols-3 items-start">
-				<div class="lg:col-span-1">
-					@DebtCard(debt)
-				</div>
-
-				<div class="lg:col-span-2">
-					<div>
-						<h1 class="font-display text-lg text-gray-100 mb-4">Energy Curve</h1>
-						<div class="relative h-64 surface">
-							<canvas id="energy-chart"></canvas>
-						</div>
+				<div class={ dashboardSummaryGridClass(schedule) }>
+					<div class="lg:col-span-1">
+						@DebtCard(debt)
 					</div>
-				</div>
+
+					if len(schedule.Points) > 0 {
+						<div class="lg:col-span-2">
+							<div>
+								<h1 class="font-display text-lg text-gray-100 mb-4">Modeled Energy Curve</h1>
+								<div class="relative h-64 surface">
+									<canvas id="energy-chart"></canvas>
+								</div>
+							</div>
+						</div>
+					}
 			</div>
 
 			@TodaySchedule(schedule)
@@ -33,7 +35,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 					<h2 class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-3">Key Times</h2>
 					<div class={ keyTimeGridClass(schedule), " gap-px bg-night-border rounded-lg overflow-hidden" }>
 						if !schedule.BestFocusStart.IsZero() {
-							@TimeCard("Best Focus", "noon") {
+							@TimeCard("Modeled High Energy", "noon") {
 								<local-time datetime={ isoTime(schedule.BestFocusStart) }></local-time>
 								{ " – " }
 								<local-time datetime={ isoTime(schedule.BestFocusEnd) }></local-time>
@@ -49,7 +51,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 								<local-time datetime={ isoTime(schedule.OptimalNapEnd) }></local-time>
 							}
 						}
-						@TimeCard("Melatonin Window", "twilight") {
+						@TimeCard("Estimated Wind-Down", "twilight") {
 							<local-time datetime={ isoTime(schedule.MelatoninWindow) }></local-time>
 						}
 					</div>
@@ -59,9 +61,10 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 			}
 		</div>
 
-		@templ.JSONScript("energy-points", schedule.Points)
-		<script src="/assets/dist/chart.umd.min.js"></script>
-		<script>
+			if len(schedule.Points) > 0 {
+				@templ.JSONScript("energy-points", schedule.Points)
+				<script src="/assets/dist/chart.umd.min.js"></script>
+				<script>
 			let chart = null;
 			const fmt = window.__timeFmt;
 
@@ -99,7 +102,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 					data: {
 						labels: labels,
 						datasets: [{
-							label: 'Alertness',
+							label: 'Modeled alertness',
 							data: data,
 							borderColor: 'rgba(129, 140, 248, 0.7)',
 							backgroundColor: bgColors,
@@ -124,7 +127,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 								ticks: { color: '#4b5563', font: { family: "'DM Sans', sans-serif", size: 11 } },
 								grid: { color: 'rgba(30, 39, 68, 0.6)' },
 								border: { color: 'rgba(30, 39, 68, 0.6)' },
-								title: { display: true, text: 'Alertness', color: '#4b5563', font: { family: "'DM Sans', sans-serif" } },
+								title: { display: true, text: 'Modeled alertness', color: '#4b5563', font: { family: "'DM Sans', sans-serif" } },
 							},
 						},
 						interaction: { mode: 'index', intersect: false },
@@ -136,33 +139,53 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 			};
 			const energyPoints = document.getElementById('energy-points');
 			if (energyPoints) window.updateEnergyChart(JSON.parse(energyPoints.textContent));
-		</script>
+				</script>
+			}
 	}
 }
 
 templ DebtCard(debt engine.SleepDebt) {
 	<div id="debt-card" class="hero-stat">
 		<div class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-4">Sleep Debt</div>
-		<div class={ "font-display text-6xl leading-none", debtColor(debt.Category) }>
-			{ fmt.Sprintf("%.1fh", debt.Hours) }
-		</div>
-		<div class={ "text-sm mt-3 font-medium capitalize font-mono", debtColor(debt.Category) }>
-			{ string(debt.Category) }
-		</div>
+		if debt.ObservedNights == 0 {
+			<div class="font-display text-6xl leading-none text-gray-500">—</div>
+			<div class="text-sm mt-3 font-medium font-mono text-gray-400">
+				not enough data
+			</div>
+		} else if debt.IsLowerBound {
+			<div class={ "font-display text-6xl leading-none", debtColor(debt.Category) }>
+				{ fmt.Sprintf("%.1fh", debt.Hours) }
+			</div>
+			<div class="text-sm mt-3 font-medium font-mono text-amber-500">
+				observed lower bound
+			</div>
+		} else {
+			<div class={ "font-display text-6xl leading-none", debtColor(debt.Category) }>
+				{ fmt.Sprintf("%.1fh", debt.Hours) }
+			</div>
+			<div class={ "text-sm mt-3 font-medium capitalize font-mono", debtColor(debt.Category) }>
+				{ string(debt.Category) }
+			</div>
+		}
 		if debt.Freshness == engine.FreshnessStale || debt.Freshness == engine.FreshnessInsufficient {
 			<div class="mt-3 text-xs font-mono text-amber-500">
-				{ fmt.Sprintf("%d of 13 nights missing data", debt.GapDays) }
+				{ fmt.Sprintf("%d of 14 nights observed", debt.ObservedNights) }
 			</div>
 		} else if debt.Freshness == engine.FreshnessRecent {
 			if debt.LastNightMissing {
 				<div class="mt-3 text-xs font-mono text-gray-500">
-					no sleep data for last night
+					last night estimated from recent sleep
 				</div>
 			} else {
 				<div class="mt-3 text-xs font-mono text-gray-500">
-					{ fmt.Sprintf("%d of 13 nights missing data", debt.GapDays) }
+					{ fmt.Sprintf("%d of 14 nights estimated", debt.EstimatedNights) }
 				</div>
 			}
+		}
+		if debt.NapCreditHours > 0 {
+			<div class="mt-2 text-xs font-mono text-gray-500">
+				{ fmt.Sprintf("%.1fh nap recovery included", debt.NapCreditHours) }
+			</div>
 		}
 	</div>
 }
@@ -171,17 +194,67 @@ templ TodaySchedule(schedule engine.Schedule) {
 	<div id="today-schedule" class="section-ruled">
 		<h2 class="font-display text-lg text-gray-100 mb-4">Today</h2>
 		if len(schedule.Points) == 0 {
-			<p class="text-gray-400">No sleep data yet. <a href="/sleep" class="text-dusk hover:text-dawn transition-colors underline underline-offset-2">Log your sleep</a> to see your energy schedule.</p>
+			if schedule.AwaitingSleepData {
+				<p class="text-gray-400">
+					<span class="text-amber-500">Waiting for today's completed Fitbit sleep.</span>
+					Meridian retries every 30 minutes and will replace this state automatically when Fitbit publishes it.
+					if !schedule.LastSync.IsZero() {
+						<span> Last checked { formatScheduleSync(schedule.LastSync) }.</span>
+					}
+					<a href="/settings" class="text-dusk hover:text-dawn transition-colors underline underline-offset-2">Sync now</a>.
+				</p>
+			} else if schedule.Confidence == engine.ConfidenceLow && schedule.ConfidenceReason != "" {
+				<p class="text-gray-400"><span class="text-amber-500">No reliable timing forecast:</span> { schedule.ConfidenceReason }. Meridian will keep showing the sleep data it can support without inventing precise peaks.</p>
+			} else if schedule.ObservedNights > 0 {
+				<p class="text-gray-400">No recent main sleep was found, so Meridian is not guessing today's curve. <a href="/sleep" class="text-dusk hover:text-dawn transition-colors underline underline-offset-2">Check or log your sleep</a>.</p>
+			} else {
+				<p class="text-gray-400">No sleep data yet. <a href="/sleep" class="text-dusk hover:text-dawn transition-colors underline underline-offset-2">Log your sleep</a> to see your energy schedule.</p>
+			}
 		} else {
+			<div class="mb-4 rounded-lg border border-night-border bg-night-deep/40 px-4 py-3 text-xs font-mono text-gray-400">
+				if schedule.Confidence == engine.ConfidencePreliminary {
+					<span class="text-amber-500">Preliminary forecast</span>
+					<span> · { fmt.Sprintf("%d of 14 nights observed", schedule.ObservedNights) }</span>
+				} else if schedule.Confidence == engine.ConfidenceLow {
+					<span class="text-amber-500">Low-confidence forecast</span>
+					<span> · { schedule.ConfidenceReason }</span>
+				} else if schedule.Confidence == engine.ConfidenceHigh {
+					<span class="text-emerald-400">Higher-confidence forecast</span>
+					<span> · recent sleep timing personalized</span>
+				} else {
+					<span>Moderate-confidence forecast</span>
+					if schedule.IsEstimate {
+						<span> · missing debt days estimated from your median sleep</span>
+					}
+				}
+				<span class="block mt-1">Based on main sleep ending <local-time datetime={ isoTime(schedule.MorningWake) }></local-time>.</span>
+				if schedule.EnergyPattern == engine.PatternTwoPeak {
+					<span class="block mt-1">Two distinct highs and an intervening dip met the display threshold.</span>
+				} else if schedule.EnergyPattern == engine.PatternOnePeak {
+					<span class="block mt-1">One clear high is modeled today; Meridian is not inventing a second peak.</span>
+				}
+			</div>
 			<div class="flex gap-2 flex-wrap">
-				for _, zone := range uniqueZones(schedule.Points) {
-					<span class={ "inline-flex items-center rounded-md px-3 py-1 text-xs font-mono font-medium", zoneBadgeClass(zone) }>
-						{ zoneLabel(zone) }
-					</span>
+					for _, zone := range uniqueZones(schedule.Points) {
+						<span class={ "inline-flex items-center rounded-md px-3 py-1 text-xs font-mono font-medium", zoneBadgeClass(zone) }>
+							{ zoneLabel(zone, schedule.EnergyPattern) }
+						</span>
 				}
 			</div>
 		}
 	</div>
+}
+
+func formatScheduleSync(syncTime time.Time) string {
+	elapsed := time.Since(syncTime)
+	switch {
+	case elapsed < time.Minute:
+		return "just now"
+	case elapsed < time.Hour:
+		return fmt.Sprintf("%d minutes ago", max(1, int(elapsed.Minutes())))
+	default:
+		return fmt.Sprintf("%d hours ago", max(1, int(elapsed.Hours())))
+	}
 }
 
 templ TimeCard(label, colorName string) {
@@ -235,6 +308,13 @@ func keyTimeGridClass(schedule engine.Schedule) string {
 	return "grid grid-cols-2 sm:grid-cols-4"
 }
 
+func dashboardSummaryGridClass(schedule engine.Schedule) string {
+	if len(schedule.Points) == 0 {
+		return "grid grid-cols-1 gap-8 items-start max-w-sm"
+	}
+	return "grid grid-cols-1 gap-8 lg:grid-cols-3 items-start"
+}
+
 func debtColor(cat engine.DebtCategory) string {
 	switch cat {
 	case engine.DebtNone:
@@ -262,20 +342,26 @@ func uniqueZones(points []engine.EnergyPoint) []string {
 	return zones
 }
 
-func zoneLabel(zone string) string {
+func zoneLabel(zone, pattern string) string {
 	switch zone {
 	case engine.ZoneSleepInertia:
 		return "Sleep Inertia"
 	case engine.ZoneMorningPeak:
-		return "Morning Peak"
+		if pattern == engine.PatternOnePeak {
+			return "Modeled High"
+		}
+		return "Modeled First High"
 	case engine.ZoneAfternoonDip:
-		return "Afternoon Dip"
+		return "Modeled Dip"
 	case engine.ZoneEveningPeak:
-		return "Evening Peak"
+		if pattern == engine.PatternOnePeak {
+			return "Modeled High"
+		}
+		return "Modeled Second High"
 	case engine.ZoneWindDown:
-		return "Wind Down"
+		return "Energy Declining"
 	case engine.ZoneMelatoninWindow:
-		return "Melatonin Window"
+		return "Estimated Wind-Down"
 	default:
 		return zone
 	}

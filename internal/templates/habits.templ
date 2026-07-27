@@ -24,7 +24,7 @@ templ Habits(habits []*core.Record, resolved []services.ResolvedHabit, presets [
 			<div>
 				<h1 class="font-display text-2xl text-gray-100">Habits</h1>
 				<p class="text-sm text-gray-400 mt-1">
-					Science-backed habits anchored to your energy schedule. Get notified at the right time.
+					Planning cues anchored to observed wake/solar times or today's model. Model-timed cues follow forecast confidence.
 				</p>
 			</div>
 
@@ -43,7 +43,7 @@ templ Habits(habits []*core.Record, resolved []services.ResolvedHabit, presets [
 			// --- Suggested Habits ---
 			<div>
 				<h2 class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-1">Suggested Habits</h2>
-				<p class="text-xs text-gray-400 mb-3">One-click enable. Timed to your energy schedule.</p>
+				<p class="text-xs text-gray-400 mb-3">One-click enable. Some cues appear only when today's model supports their anchor.</p>
 				for _, cat := range []string{"morning", "afternoon", "evening"} {
 					@presetCategory(cat, presets, activePresets)
 				}
@@ -253,15 +253,15 @@ func habitVal(habit *core.Record, field string) string {
 func anchorLabel(anchor string, offset int, customTime string) string {
 	labels := map[string]string{
 		"morning_wake":     "Wake",
-		"best_focus":       "Focus window",
-		"morning_peak":     "Morning peak",
-		"afternoon_dip":    "Afternoon dip",
-		"nap_window":       "Nap window",
-		"evening_peak":     "Evening peak",
+		"best_focus":       "Modeled high energy",
+		"morning_peak":     "Modeled first high",
+		"afternoon_dip":    "Modeled dip",
+		"nap_window":       "Optional nap window",
+		"evening_peak":     "Modeled second high",
 		"caffeine_cutoff":  "Caffeine cutoff",
 		"sunset":           "Sunset",
 		"sunrise":          "Sunrise",
-		"melatonin_window": "Melatonin",
+		"melatonin_window": "Estimated wind-down",
 		"custom":           customTime,
 	}
 	label := labels[anchor]

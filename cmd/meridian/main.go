@@ -84,9 +84,10 @@ func main() {
 		syncFitbitForAllUsers(app)
 	})
 
-	// Morning job runs hourly but only fires for users whose local time is
-	// 8 AM. Computes the schedule + sends morning greeting only.
-	app.Cron().MustAdd("morning-schedule", "0 * * * *", func() {
+	// Morning job is a backup for manual/file-import users and runs at :07 to
+	// avoid racing the :00/:30 Fitbit reconciliation. It only acts for users
+	// whose local hour is 8.
+	app.Cron().MustAdd("morning-schedule", "7 * * * *", func() {
 		runMorningJobForAllUsers(app)
 	})
 
@@ -165,6 +166,12 @@ func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
 		// Use RefreshScheduleIfNeeded so nap detection + post-nap notifications work.
 		if _, err := services.RefreshScheduleIfNeeded(app, s.GetString("user")); err != nil {
 			slog.Error("schedule update after sync failed", "user_id", s.GetString("user"), "error", err)
+		}
+		// If Fitbit published the completed main sleep after the fixed 8am
+		// job, send the still-unsent daily summary now. RunMorningJob is
+		// idempotent and withholds the summary until today's wake is present.
+		if err := services.RunMorningJob(app, s.GetString("user")); err != nil {
+			slog.Error("daily summary reconciliation after sync failed", "user_id", s.GetString("user"), "error", err)
 		}
 	}
 }

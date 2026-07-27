@@ -146,6 +146,14 @@ func SyncFitbitUser(app core.App, s *core.Record, start, end time.Time) error {
 		}
 	}
 	if err != nil {
+		attemptedAt := time.Now()
+		s.Set("fitbit_last_attempt", attemptedAt)
+		if errors.Is(err, ingest.ErrSleepPending) {
+			s.Set("fitbit_sleep_pending", true)
+		}
+		if saveErr := app.Save(s); saveErr != nil {
+			slog.Warn("failed to record fitbit sync attempt", "user_id", userID, "error", saveErr)
+		}
 		if errors.Is(err, ingest.ErrRateLimited) {
 			slog.Warn("fitbit API rate limited, skipping sync", "user_id", userID)
 		}
@@ -163,10 +171,15 @@ func SyncFitbitUser(app core.App, s *core.Record, start, end time.Time) error {
 		return fmt.Errorf("%w: %d of %d failed", errFitbitSaveRecords, saveFailures, len(records))
 	}
 
-	// Update last sync timestamp.
-	s.Set("fitbit_last_sync", time.Now())
+	// Distinguish a completed API sync from an attempt while Fitbit was still
+	// classifying the sleep. The dashboard uses last_attempt for honest
+	// "checked" copy and last_sync remains the last successful import check.
+	syncedAt := time.Now()
+	s.Set("fitbit_last_attempt", syncedAt)
+	s.Set("fitbit_last_sync", syncedAt)
+	s.Set("fitbit_sleep_pending", false)
 	if err := app.Save(s); err != nil {
-		slog.Warn("failed to update fitbit_last_sync", "user_id", userID, "error", err)
+		slog.Warn("failed to update fitbit sync state", "user_id", userID, "error", err)
 	}
 
 	return nil

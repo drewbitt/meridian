@@ -18,25 +18,22 @@ type Habit struct {
 	Enabled       bool
 }
 
-// HabitPreset defines a science-backed habit suggestion that users can enable
-// with a single click. Each preset maps to an anchor point from the energy
-// schedule and includes a description of why it matters.
+// HabitPreset defines a planning suggestion that users can enable with a
+// single click. Some presets use observed wake/solar anchors; others resolve
+// only when today's model supports the corresponding feature.
 type HabitPreset struct {
 	Key           string // stable identifier (e.g. "morning_light")
 	Name          string // display name
 	Anchor        string // schedule anchor
 	OffsetMinutes int    // offset from anchor
-	Description   string // short science-backed rationale
+	Description   string // short, uncertainty-aware rationale
 	Icon          string // emoji for display
 	Category      string // grouping: "morning", "afternoon", "evening"
 }
 
-// Presets returns the curated list of science-backed habit suggestions.
-// These are derived from RISE's timed habits and circadian research:
-//   - Huberman (2021): morning light exposure within 30-60 min of waking
-//   - Wehr et al. (2001): light exposure timing shapes circadian phase
-//   - Wright et al. (2013): meal timing affects peripheral circadian clocks
-//   - Drake et al. (2013): caffeine 6h before bed disrupts sleep by ~1h
+// Presets returns conservative planning cues. Wording deliberately separates
+// measured events from model-derived estimates and avoids universal claims
+// about peaks, dips, melatonin onset, or individual cognitive performance.
 func Presets() []HabitPreset {
 	return []HabitPreset{
 		{
@@ -44,7 +41,7 @@ func Presets() []HabitPreset {
 			Name:          "Morning Light",
 			Anchor:        "morning_wake",
 			OffsetMinutes: 0,
-			Description:   "Get bright light within 30 min of waking. Anchors your circadian clock and suppresses melatonin.",
+			Description:   "Seek bright light soon after waking when practical. Morning light can help reinforce a regular sleep-wake schedule.",
 			Icon:          "\u2600", // ☀
 			Category:      "morning",
 		},
@@ -53,16 +50,16 @@ func Presets() []HabitPreset {
 			Name:          "Grogginess Clears",
 			Anchor:        "morning_wake",
 			OffsetMinutes: 90,
-			Description:   "Sleep inertia fades ~90 min after waking. Delay critical decisions until then.",
+			Description:   "Sleep inertia often eases over the first 30–90 minutes. Give yourself extra margin if you still feel groggy.",
 			Icon:          "\u25d3", // ◓
 			Category:      "morning",
 		},
 		{
 			Key:           "peak_focus",
-			Name:          "Peak Focus Window",
+			Name:          "Modeled High-Energy Window",
 			Anchor:        "best_focus",
 			OffsetMinutes: 0,
-			Description:   "Your highest cognitive performance window. Schedule demanding work here.",
+			Description:   "The model's highest alertness interval today. Use it as a planning hint and compare it with how you actually feel.",
 			Icon:          "\u25ce", // ◎
 			Category:      "morning",
 		},
@@ -71,25 +68,25 @@ func Presets() []HabitPreset {
 			Name:          "Afternoon Dip",
 			Anchor:        "afternoon_dip",
 			OffsetMinutes: 0,
-			Description:   "Energy naturally dips here. Good time for a walk, nap, or routine tasks.",
+			Description:   "Shown only when today's curve has a clear two-peak dip. Consider lighter work or a walk if it matches how you feel.",
 			Icon:          "\u25bd", // ▽
 			Category:      "afternoon",
 		},
 		{
 			Key:           "nap_window",
-			Name:          "Optimal Nap",
+			Name:          "Optional Short Nap",
 			Anchor:        "nap_window",
 			OffsetMinutes: 0,
-			Description:   "Best window for a 20-min power nap without disrupting tonight's sleep.",
+			Description:   "Available only with a clear modeled dip. A short nap may help, but late or long naps can make nighttime sleep harder.",
 			Icon:          "\u263e", // ☾
 			Category:      "afternoon",
 		},
 		{
 			Key:           "evening_peak",
-			Name:          "Evening Peak",
+			Name:          "Modeled Second High",
 			Anchor:        "evening_peak",
 			OffsetMinutes: 0,
-			Description:   "Second wind \u2014 your circadian alertness peak. Great for exercise or creative work.",
+			Description:   "Shown only when the model detects a distinct second high. Treat it as a planning cue, not a guaranteed second wind.",
 			Icon:          "\u26a1", // ⚡
 			Category:      "afternoon",
 		},
@@ -98,7 +95,7 @@ func Presets() []HabitPreset {
 			Name:          "Caffeine Cutoff",
 			Anchor:        "caffeine_cutoff",
 			OffsetMinutes: 0,
-			Description:   "Last call for caffeine. Its 10h half-life means later cups steal deep sleep.",
+			Description:   "A conservative cutoff about 10 hours before target sleep. Caffeine response and half-life vary substantially by person.",
 			Icon:          "\u2615", // ☕
 			Category:      "afternoon",
 		},
@@ -107,7 +104,7 @@ func Presets() []HabitPreset {
 			Name:          "Last Meal",
 			Anchor:        "melatonin_window",
 			OffsetMinutes: -180,
-			Description:   "Finish eating 3h before your melatonin window. Late meals shift your circadian clock.",
+			Description:   "A planning cue to finish a large meal about 3 hours before estimated wind-down. Adjust for health needs and comfort.",
 			Icon:          "\U0001F374", // 🍴
 			Category:      "evening",
 		},
@@ -116,7 +113,7 @@ func Presets() []HabitPreset {
 			Name:          "Sunset Wind-Down",
 			Anchor:        "sunset",
 			OffsetMinutes: 0,
-			Description:   "Sunset signals your SCN to begin the transition to sleep mode. Start dimming lights.",
+			Description:   "Use local sunset as an optional cue to begin reducing bright light. It is not a measurement of your actual light exposure.",
 			Icon:          "\U0001F305", // 🌅
 			Category:      "evening",
 		},
@@ -125,16 +122,16 @@ func Presets() []HabitPreset {
 			Name:          "Screens Off",
 			Anchor:        "melatonin_window",
 			OffsetMinutes: -120,
-			Description:   "Blue light suppresses melatonin. Dim screens or use night mode 2h before your window.",
+			Description:   "Reduce bright, close-up light before target sleep if it helps you unwind; brightness and duration both matter.",
 			Icon:          "\U0001F4F5", // 📵
 			Category:      "evening",
 		},
 		{
 			Key:           "melatonin_window",
-			Name:          "Melatonin Window",
+			Name:          "Estimated Wind-Down",
 			Anchor:        "melatonin_window",
 			OffsetMinutes: 0,
-			Description:   "Your body begins producing melatonin. The ideal time to fall asleep starts now.",
+			Description:   "A planning estimate based on wake time and sleep need—not a measurement of melatonin onset or an exact bedtime.",
 			Icon:          "\U0001F319", // 🌙
 			Category:      "evening",
 		},
@@ -162,9 +159,23 @@ func ActivePresetKeys(habits []*core.Record) map[string]bool {
 	for _, p := range Presets() {
 		if nameSet[p.Name] {
 			active[p.Key] = true
+			continue
+		}
+		for _, oldName := range legacyPresetNames[p.Key] {
+			if nameSet[oldName] {
+				active[p.Key] = true
+				break
+			}
 		}
 	}
 	return active
+}
+
+var legacyPresetNames = map[string][]string{
+	"peak_focus":       {"Peak Focus Window"},
+	"nap_window":       {"Optimal Nap"},
+	"evening_peak":     {"Evening Peak"},
+	"melatonin_window": {"Melatonin Window"},
 }
 
 // GetUserHabits loads all enabled habits for a user.
@@ -199,15 +210,15 @@ var AllAnchors = []struct {
 	Label string
 }{
 	{"morning_wake", "Morning wake"},
-	{"best_focus", "Best focus window"},
-	{"morning_peak", "Morning peak"},
-	{"afternoon_dip", "Afternoon dip"},
-	{"nap_window", "Nap window"},
-	{"evening_peak", "Evening peak"},
+	{"best_focus", "Modeled high-energy window"},
+	{"morning_peak", "Modeled first high"},
+	{"afternoon_dip", "Modeled two-peak dip"},
+	{"nap_window", "Optional short-nap window"},
+	{"evening_peak", "Modeled second high"},
 	{"caffeine_cutoff", "Caffeine cutoff"},
 	{"sunset", "Sunset"},
 	{"sunrise", "Sunrise"},
-	{"melatonin_window", "Melatonin window"},
+	{"melatonin_window", "Estimated wind-down"},
 	{"custom", "Custom time"},
 }
 

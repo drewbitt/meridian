@@ -33,18 +33,44 @@ func TestClassifyZones_BasicSchedule(t *testing.T) {
 		t.Error("Expected sleep inertia zone")
 	}
 
-	// Melatonin window should be ~14h after wake.
-	expectedMel := sleepEnd.Add(14 * time.Hour)
-	if schedule.MelatoninWindow.Hour() != expectedMel.Hour() {
-		t.Errorf("Expected melatonin window at %dh, got %dh",
-			expectedMel.Hour(), schedule.MelatoninWindow.Hour())
+	// With an 8h need, estimated wind-down begins 14h after wake and target
+	// sleep is 16h after wake.
+	expectedWindDown := sleepEnd.Add(14 * time.Hour)
+	if schedule.MelatoninWindow.Hour() != expectedWindDown.Hour() {
+		t.Errorf("Expected wind-down at %dh, got %dh",
+			expectedWindDown.Hour(), schedule.MelatoninWindow.Hour())
 	}
 
-	// Caffeine cutoff should be 10h before melatonin window.
-	expectedCaffeine := schedule.MelatoninWindow.Add(-10 * time.Hour)
+	// Caffeine cutoff is 10h before target sleep, or 8h before wind-down.
+	expectedCaffeine := schedule.MelatoninWindow.Add(-8 * time.Hour)
 	if schedule.CaffeineCutoff.Hour() != expectedCaffeine.Hour() {
 		t.Errorf("Expected caffeine cutoff at %dh, got %dh",
 			expectedCaffeine.Hour(), schedule.CaffeineCutoff.Hour())
+	}
+}
+
+func TestClassifyZonesForSleepNeed_AdjustsPlanningAnchors(t *testing.T) {
+	t.Parallel()
+	wake := time.Date(2026, 7, 27, 7, 0, 0, 0, time.UTC)
+	points := make([]EnergyPoint, 0, 24)
+	for hour := range 24 {
+		points = append(points, EnergyPoint{
+			Time:      wake.Add(time.Duration(hour) * time.Hour),
+			Alertness: 10,
+			KSS:       4.6,
+		})
+	}
+
+	eightHour := ClassifyZonesForSleepNeed(points, wake, 8)
+	nineHour := ClassifyZonesForSleepNeed(points, wake, 9)
+	if got := eightHour.MelatoninWindow.Sub(wake); got != 14*time.Hour {
+		t.Errorf("8h need wind-down offset = %s, want 14h", got)
+	}
+	if got := nineHour.MelatoninWindow.Sub(wake); got != 13*time.Hour {
+		t.Errorf("9h need wind-down offset = %s, want 13h", got)
+	}
+	if got := nineHour.CaffeineCutoff.Sub(wake); got != 5*time.Hour {
+		t.Errorf("9h need caffeine offset = %s, want 5h", got)
 	}
 }
 
@@ -102,7 +128,7 @@ func TestClassifyZones_DerivedTimes(t *testing.T) {
 		t.Error("BestFocusStart should be after wake time")
 	}
 
-	// Melatonin window and caffeine cutoff should always be derived.
+	// Wind-down (legacy field name) and caffeine cutoff should be derived.
 	if schedule.MelatoninWindow.IsZero() {
 		t.Error("Expected MelatoninWindow to be set")
 	}

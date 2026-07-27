@@ -7,13 +7,14 @@ Meridian is a self-hosted sleep tracker that estimates how your energy will chan
 
 Meridian can:
 
-- calculate alertness and sleep debt from recent sleep
-- show likely focus periods, energy dips, and wind-down times
+- calculate a weighted sleep-debt planning index from recent sleep
+- show a modeled high-energy period and, only when supported, a distinct dip
 - import Fitbit, Health Connect, Apple Health, and Gadgetbridge data
-- schedule personal habits around your predicted energy
-- send caffeine, nap, focus, and bedtime notifications
+- schedule personal habits around observed or modeled daily anchors
+- send confidence-gated caffeine, nap, energy, and wind-down notifications
 
-The model is an estimate, not medical advice or a diagnosis.
+The model is an estimate, not medical advice, a diagnosis, or a measurement of
+circadian phase. See the [model validation and limitations](docs/model-validation.md).
 
 ## Run Meridian
 
@@ -112,7 +113,11 @@ representation.
 3. Choose Read-Only as the default access type.
 4. Save the client ID and client secret on Meridian's Settings page, then select Connect.
 
-The first connection imports the previous 30 days. Later syncs run every 30 minutes and reread the last three days to catch delayed Fitbit records.
+The first connection imports the previous 30 days. Later syncs run every 30
+minutes and reread the last three days to catch delayed Fitbit records. If
+Fitbit is still processing sleep after wake-up, Meridian shows a waiting state,
+retries automatically, and creates the day's schedule when the completed main
+sleep appears.
 
 Fitbit says its Web API will be deprecated in September 2026. Existing Fitbit support may need to change when Google publishes its replacement.
 

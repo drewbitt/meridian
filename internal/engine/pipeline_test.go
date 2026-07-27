@@ -386,8 +386,6 @@ func TestPipeline_LargeScale(t *testing.T) {
 			}
 
 			// Count peaks via zone classification (the source of truth for users).
-			// The TPM's dual-peak structure has a shallow afternoon dip (~0.2 units)
-			// that raw local-maxima detection misses, but zone classification handles.
 			hasMorningPeak := false
 			hasEveningPeak := false
 			for _, p := range schedule.Points {
@@ -465,12 +463,14 @@ func TestPipeline_LargeScale(t *testing.T) {
 	}
 
 	// ---- Aggregate assertions ----
-	// The TPM's dual-peak (morning + evening) structure is subtle: the afternoon
-	// dip is typically only ~0.2 alertness units, so the zone classifier often
-	// assigns a single peak. This is expected model behavior, not a bug.
-	// Log the ratio for trend tracking rather than hard-failing.
-	if agg.dualPeaks == 0 {
-		t.Errorf("no dual-peak scenarios at all — zone classifier may be broken")
+	// Under the published Ua=0.5 parameters, these scenarios have one clear
+	// maximum and no actionable dip. A separate sensitivity test verifies that
+	// the classifier does detect genuinely prominent synthetic/tuned dual peaks.
+	if agg.noPeak > 2 {
+		t.Errorf("no peak in %d/%d complete scenarios", agg.noPeak, agg.n)
+	}
+	if agg.napWindowSet != 0 {
+		t.Errorf("invented nap windows in %d scenarios without a prominent dip", agg.napWindowSet)
 	}
 	if agg.inertiaPresent < agg.n/2 {
 		t.Errorf("inertia in only %d/%d scenarios — expected at least 50%%", agg.inertiaPresent, agg.n)
@@ -679,7 +679,7 @@ func TestPipeline_SignalQuality(t *testing.T) {
 		t.Logf("  %-20s %3d points (%4.1f%%)", zone, count, pct)
 	}
 
-	expectedZones := []string{ZoneSleepInertia, ZoneMorningPeak, ZoneNormal}
+	expectedZones := []string{ZoneSleepInertia, ZoneEveningPeak, ZoneNormal}
 	for _, z := range expectedZones {
 		if zones[z] == 0 {
 			t.Errorf("expected zone %q not found", z)

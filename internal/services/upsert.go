@@ -41,6 +41,7 @@ func UpsertSleepRecord(app core.App, userID string, rec ingest.SleepRecord) (*co
 	record.Set("light_minutes", rec.LightMinutes)
 	record.Set("awake_minutes", rec.AwakeMinutes)
 	record.Set("is_nap", rec.IsNap)
+	record.Set("nap_explicit", rec.NapExplicit)
 
 	if err := app.Save(record); err != nil {
 		return nil, err

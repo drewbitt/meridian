@@ -31,6 +31,7 @@ func registerSleepRoutes(se *core.ServeEvent, app core.App) {
 		data := struct {
 			SleepStart string `json:"sleep_start" form:"sleep_start"`
 			SleepEnd   string `json:"sleep_end" form:"sleep_end"`
+			IsNap      bool   `json:"is_nap" form:"is_nap"`
 		}{}
 		if err := re.BindBody(&data); err != nil {
 			return re.BadRequestError("Invalid data", err)
@@ -72,6 +73,8 @@ func registerSleepRoutes(se *core.ServeEvent, app core.App) {
 			SleepEnd:        sleepEnd,
 			DurationMinutes: duration,
 			Source:          "manual",
+			IsNap:           data.IsNap,
+			NapExplicit:     true,
 		}
 		if _, err := services.UpsertSleepRecord(app, userID, rec); err != nil {
 			return re.InternalServerError("Failed to save", err)
@@ -80,6 +83,9 @@ func registerSleepRoutes(se *core.ServeEvent, app core.App) {
 		// Recompute schedule with the new sleep data.
 		if _, err := services.RefreshScheduleIfNeeded(app, userID); err != nil {
 			slog.Error("failed to refresh schedule after manual entry", "user_id", userID, "error", err)
+		}
+		if err := services.RunMorningJob(app, userID); err != nil {
+			slog.Error("failed to reconcile daily summary after manual entry", "user_id", userID, "error", err)
 		}
 
 		return re.Redirect(http.StatusSeeOther, "/")

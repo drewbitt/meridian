@@ -46,6 +46,11 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 					Fitbit sync complete
 				</div>
 			}
+			if fitbitStatus == "pending" {
+				<div id="toast-fitbit-pending" class="fixed bottom-6 right-6 max-w-sm rounded-lg bg-amber-500/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Fitbit is still processing today's sleep. Meridian will check again automatically.
+				</div>
+			}
 			if fitbitError == "not_configured" {
 				<div id="toast-fitbit-error" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
 					Enter your Fitbit Client ID and Secret below, then save before connecting.
@@ -85,12 +90,12 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 							id="chronotype_shift"
 							name="chronotype_shift"
 							step="0.5"
-							min="-3"
-							max="3"
+							min="-2"
+							max="2"
 							value={ chronotypeShiftValue(settings) }
 							class="input-field"
 						/>
-						<p class="mt-1 text-xs text-gray-400">Manual override for circadian phase. 0 = auto-detect from sleep patterns. Negative = early bird, positive = night owl.</p>
+						<p class="mt-1 text-xs text-gray-400">Manual override for circadian phase (limited to ±2 hours). 0 = auto-detect from sleep patterns.</p>
 					</div>
 
 					<div>
@@ -201,7 +206,7 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 								Using approximate location from timezone. Search your city for better accuracy.
 							</p>
 						}
-						<p class="mt-1 text-xs text-gray-400">Used for sunrise/sunset timing and seasonal circadian adjustment.</p>
+						<p class="mt-1 text-xs text-gray-400">Used for sunrise and sunset planning cues. Meridian does not treat outdoor day length as your measured light exposure.</p>
 						<input type="hidden" id="latitude" name="latitude" value={ getSettingStr(settings, "latitude") }/>
 						<input type="hidden" id="longitude" name="longitude" value={ getSettingStr(settings, "longitude") }/>
 					</div>
@@ -323,6 +328,11 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 								Disconnected — last synced { formatLastSyncRelative(settings) }. Reconnect to resume auto-sync.
 							</div>
 						}
+					}
+					if hasFitbitToken(settings) && settings.GetBool("fitbit_sleep_pending") {
+						<div class="text-xs text-amber-500 -mt-2">
+							Fitbit was still processing today's sleep when Meridian checked { formatFitbitAttemptRelative(settings) }. Auto-sync will retry.
+						</div>
 					}
 
 					<div class="border-t border-night-border pt-4">
@@ -524,6 +534,21 @@ func hasFitbitLastSync(settings *core.Record) bool {
 
 func formatLastSyncRelative(settings *core.Record) string {
 	t := settings.GetDateTime("fitbit_last_sync").Time()
+	return formatRelativeTime(t)
+}
+
+func formatFitbitAttemptRelative(settings *core.Record) string {
+	t := settings.GetDateTime("fitbit_last_attempt").Time()
+	if t.IsZero() {
+		t = settings.GetDateTime("fitbit_last_sync").Time()
+	}
+	return formatRelativeTime(t)
+}
+
+func formatRelativeTime(t time.Time) string {
+	if t.IsZero() {
+		return "recently"
+	}
 	elapsed := time.Since(t)
 	switch {
 	case elapsed < time.Minute:

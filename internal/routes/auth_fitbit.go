@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/drewbitt/meridian/internal/ingest"
 	"github.com/drewbitt/meridian/internal/services"
 	"github.com/pocketbase/pocketbase/core"
 	"golang.org/x/oauth2"
@@ -112,6 +113,13 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 			start := end.AddDate(0, 0, -30)
 			if err := services.SyncFitbitUser(app, s, start, end); err != nil {
 				slog.Error("fitbit backfill failed", "user_id", uid, "error", err)
+				return
+			}
+			if _, err := services.RefreshScheduleIfNeeded(app, uid); err != nil {
+				slog.Error("fitbit backfill schedule refresh failed", "user_id", uid, "error", err)
+			}
+			if err := services.RunMorningJob(app, uid); err != nil {
+				slog.Error("fitbit backfill summary reconciliation failed", "user_id", uid, "error", err)
 			}
 		}(userID)
 		// Detach: we don't wait for the backfill before responding, but the goroutine
@@ -166,11 +174,14 @@ func registerFitbitAuthRoutes(se *core.ServeEvent, app core.App) {
 		end := time.Now()
 		start := end.AddDate(0, 0, -1)
 		if err := services.SyncFitbitUser(app, settings, start, end); err != nil {
+			if errors.Is(err, ingest.ErrSleepPending) {
+				return re.Redirect(http.StatusSeeOther, "/settings?fitbit=pending")
+			}
 			slog.Error("manual fitbit sync failed", "user_id", userID, "error", err)
 			return re.Redirect(http.StatusSeeOther, "/settings?fitbit_error=sync_failed")
 		}
 
-		if err := services.UpdateUserSchedule(app, userID); err != nil {
+		if err := services.RunMorningJob(app, userID); err != nil {
 			slog.Error("schedule update after manual sync failed", "user_id", userID, "error", err)
 		}
 

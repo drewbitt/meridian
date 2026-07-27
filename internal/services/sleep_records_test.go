@@ -19,6 +19,8 @@ func newSleepCollection() *core.Collection {
 		&core.NumberField{Name: "rem_minutes"},
 		&core.NumberField{Name: "light_minutes"},
 		&core.NumberField{Name: "awake_minutes"},
+		&core.BoolField{Name: "is_nap"},
+		&core.BoolField{Name: "nap_explicit"},
 	)
 	return c
 }
@@ -207,5 +209,63 @@ func TestEmptyInput(t *testing.T) {
 	}
 	if periods != nil {
 		t.Errorf("expected nil periods, got %v", periods)
+	}
+}
+
+func TestBrokenNightIsNotSplitIntoNap(t *testing.T) {
+	c := newSleepCollection()
+	first := makeRecord(c, "fitbit",
+		"2026-07-26T23:00:00.000Z", "2026-07-27T03:00:00.000Z",
+		[4]int{0, 0, 240, 0})
+	second := makeRecord(c, "fitbit",
+		"2026-07-27T04:00:00.000Z", "2026-07-27T07:00:00.000Z",
+		[4]int{0, 0, 180, 0})
+
+	records, periods := ConvertSleepRecords([]*core.Record{first, second})
+	if len(records) != 2 || len(periods) != 2 {
+		t.Fatalf("expected two source fragments, got records=%d periods=%d", len(records), len(periods))
+	}
+	for i := range periods {
+		if periods[i].IsNap || records[i].IsNap {
+			t.Errorf("broken-night fragment %d was classified as a nap", i)
+		}
+	}
+}
+
+func TestShortEpisodeNearDominantMainSleepIsNap(t *testing.T) {
+	c := newSleepCollection()
+	main := makeRecord(c, "health_connect",
+		"2026-07-26T23:00:00.000Z", "2026-07-27T07:00:00.000Z",
+		[4]int{0, 0, 480, 0})
+	nap := makeRecord(c, "health_connect",
+		"2026-07-27T14:00:00.000Z", "2026-07-27T14:30:00.000Z",
+		[4]int{0, 0, 30, 0})
+
+	records, _ := ConvertSleepRecords([]*core.Record{main, nap})
+	if records[0].IsNap || !records[1].IsNap {
+		t.Errorf("classifications: main=%v nap=%v", records[0].IsNap, records[1].IsNap)
+	}
+}
+
+func TestExplicitNapAndMainLabelsWinOverInference(t *testing.T) {
+	c := newSleepCollection()
+	shortMain := makeRecord(c, "manual",
+		"2026-07-27T11:00:00.000Z", "2026-07-27T12:30:00.000Z",
+		[4]int{})
+	shortMain.Set("nap_explicit", true)
+	shortMain.Set("is_nap", false)
+
+	nightNap := makeRecord(c, "manual",
+		"2026-07-28T02:00:00.000Z", "2026-07-28T02:30:00.000Z",
+		[4]int{})
+	nightNap.Set("nap_explicit", true)
+	nightNap.Set("is_nap", true)
+
+	records, _ := ConvertSleepRecords([]*core.Record{shortMain, nightNap})
+	if records[0].IsNap {
+		t.Error("explicit main sleep was overridden by daytime inference")
+	}
+	if !records[1].IsNap {
+		t.Error("explicit nighttime nap was overridden by clock-time inference")
 	}
 }

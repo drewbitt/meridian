@@ -218,6 +218,7 @@ func parseFitbitSleepLogs(logs []fitbitSleepLog, loc *time.Location) []SleepReco
 			Source:          SourceFitbit,
 			DurationMinutes: durationMinutes,
 			IsNap:           !sl.IsMainSleep,
+			NapExplicit:     true,
 		}
 
 		if summary := sl.Levels.Summary; summary != nil {

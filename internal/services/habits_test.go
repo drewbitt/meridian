@@ -110,3 +110,38 @@ func TestPresetByKey(t *testing.T) {
 		t.Error("expected nil for nonexistent key")
 	}
 }
+
+func TestModelTimedNotificationsRequireReliableForecast(t *testing.T) {
+	t.Parallel()
+	for _, confidence := range []engine.ForecastConfidence{
+		engine.ConfidenceNone,
+		engine.ConfidenceLow,
+		engine.ConfidencePreliminary,
+	} {
+		if reliableModelTiming(confidence) {
+			t.Errorf("%q should not enable exact model-timed alerts", confidence)
+		}
+	}
+	for _, confidence := range []engine.ForecastConfidence{
+		engine.ConfidenceModerate,
+		engine.ConfidenceHigh,
+	} {
+		if !reliableModelTiming(confidence) {
+			t.Errorf("%q should enable model-timed alerts", confidence)
+		}
+	}
+
+	for _, anchor := range []string{
+		"best_focus", "morning_peak", "afternoon_dip", "nap_window",
+		"evening_peak", "caffeine_cutoff", "melatonin_window",
+	} {
+		if !isModelDerivedAnchor(anchor) {
+			t.Errorf("%q should be model-derived", anchor)
+		}
+	}
+	for _, anchor := range []string{"morning_wake", "sunrise", "sunset", "custom"} {
+		if isModelDerivedAnchor(anchor) {
+			t.Errorf("%q should remain available without a reliable model", anchor)
+		}
+	}
+}

@@ -25,7 +25,7 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		importedCount := q.Get("imported")
 		importError := q.Get("import_error")
 		fitbitError := q.Get("fitbit_error")
-		fitbitStatus := q.Get("fitbit") // "connected", "disconnected", "synced"
+		fitbitStatus := q.Get("fitbit") // "connected", "disconnected", "synced", "pending"
 		return render(re, templates.Settings(settings, saved, welcome, importedCount, importError, fitbitError, fitbitStatus))
 	})
 
@@ -54,7 +54,7 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 			settings.Set("sleep_need_hours", v)
 		}
 		if v := form.Get("chronotype_shift"); v != "" {
-			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= -3 && f <= 3 {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= -2 && f <= 2 {
 				settings.Set("chronotype_shift", f)
 			}
 		} else {

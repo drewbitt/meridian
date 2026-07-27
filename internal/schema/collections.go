@@ -55,6 +55,7 @@ func ensureSleepRecords(app core.App) error {
 		&core.NumberField{Name: "light_minutes"},
 		&core.NumberField{Name: "awake_minutes"},
 		&core.BoolField{Name: "is_nap"},
+		&core.BoolField{Name: "nap_explicit"},
 	)
 	return app.Save(c)
 }
@@ -71,6 +72,10 @@ func ensureEnergySchedules(app core.App) error {
 		&core.DateField{Name: "morning_wake_time"},
 		&core.JSONField{Name: "schedule_json", MaxSize: 1000000},
 		&core.JSONField{Name: "notifications_sent", MaxSize: 10000},
+		&core.TextField{Name: "confidence"},
+		&core.TextField{Name: "confidence_reason"},
+		&core.NumberField{Name: "observed_nights"},
+		&core.BoolField{Name: "is_estimate"},
 	)
 	return app.Save(c)
 }
@@ -97,6 +102,8 @@ func ensureSettings(app core.App) error {
 		&core.TextField{Name: "fitbit_refresh_token"},
 		&core.DateField{Name: "fitbit_token_expiry"},
 		&core.DateField{Name: "fitbit_last_sync"},
+		&core.DateField{Name: "fitbit_last_attempt"},
+		&core.BoolField{Name: "fitbit_sleep_pending"},
 		&core.BoolField{Name: "notifications_enabled"},
 		&core.TextField{Name: "location_name"},
 		&core.NumberField{Name: "latitude"},

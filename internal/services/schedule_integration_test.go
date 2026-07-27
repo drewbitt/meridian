@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/drewbitt/meridian/internal/engine"
 	"github.com/drewbitt/meridian/internal/ingest"
 	"github.com/drewbitt/meridian/internal/schema"
 	"github.com/pocketbase/pocketbase/core"
@@ -37,8 +38,8 @@ func TestComputeUserSchedule_NoSleepDataHasNoForecast(t *testing.T) {
 	if schedule.MorningWake.IsZero() {
 		t.Error("expected fallback wake time for scheduler deduplication")
 	}
-	if debt.GapDays != 13 {
-		t.Errorf("gap days: got %d, want 13", debt.GapDays)
+	if debt.GapDays != 14 {
+		t.Errorf("gap days: got %d, want 14", debt.GapDays)
 	}
 }
 
@@ -134,6 +135,19 @@ func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T)
 		t.Fatal(err)
 	}
 
+	now := time.Now().UTC()
+	wake := now.Add(-30 * time.Minute)
+	if _, err := UpsertSleepRecord(app, user.Id, ingest.SleepRecord{
+		Date:            ingest.SleepNightDate(wake.Add(-8 * time.Hour)),
+		SleepStart:      wake.Add(-8 * time.Hour),
+		SleepEnd:        wake,
+		DurationMinutes: 480,
+		Source:          ingest.SourceManual,
+		NapExplicit:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	scheduleCollection, err := app.FindCollectionByNameOrId("energy_schedules")
 	if err != nil {
 		t.Fatal(err)
@@ -171,5 +185,37 @@ func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T)
 	}
 	if count != 1 {
 		t.Errorf("schedule rows: got %d, want 1", count)
+	}
+}
+
+func TestScheduleSummaryNotification_DelayedTrackerLifecycle(t *testing.T) {
+	t.Parallel()
+	loc := time.UTC
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, loc)
+
+	if _, ok := scheduleSummaryNotification(engine.Schedule{}, now, loc); ok {
+		t.Error("missing completed sleep should not consume the daily summary")
+	}
+
+	current := engine.Schedule{
+		Points:      []engine.EnergyPoint{{Time: now}},
+		MorningWake: now.Add(-2 * time.Hour),
+	}
+	title, ok := scheduleSummaryNotification(current, now, loc)
+	if !ok || title != "Good morning!" {
+		t.Errorf("recent upload: title=%q ready=%v", title, ok)
+	}
+
+	delayed := current
+	delayed.MorningWake = now.Add(-6 * time.Hour)
+	title, ok = scheduleSummaryNotification(delayed, now, loc)
+	if !ok || title != "Today's sleep synced" {
+		t.Errorf("delayed upload: title=%q ready=%v", title, ok)
+	}
+
+	yesterday := current
+	yesterday.MorningWake = now.Add(-18 * time.Hour)
+	if _, ok := scheduleSummaryNotification(yesterday, now, loc); ok {
+		t.Error("previous-date wake should not generate a new-day summary")
 	}
 }
