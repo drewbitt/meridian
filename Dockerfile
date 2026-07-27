@@ -34,12 +34,7 @@ RUN mkdir -p assets/dist && \
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -o /app ./cmd/meridian
-
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -o /healthcheck ./cmd/healthcheck
+    go build -trimpath -ldflags="-s -w" -o /app ./cmd/meridian
 
 RUN mkdir /pb_data
 
@@ -51,14 +46,13 @@ LABEL org.opencontainers.image.title="Meridian" \
       org.opencontainers.image.licenses="AGPL-3.0"
 
 COPY --from=build /app /app
-COPY --from=build /healthcheck /healthcheck
 COPY --from=build --chown=65532:65532 /pb_data /pb_data
 
-ENV ALLOW_REGISTRATION=true
+ENV ALLOW_REGISTRATION=first-user
 
 EXPOSE 8090
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/healthcheck"]
+    CMD ["/app", "healthcheck"]
 
 CMD ["/app", "serve", "--http=0.0.0.0:8090", "--dir=/pb_data"]

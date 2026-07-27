@@ -1,0 +1,5 @@
+services:
+  meridian:
+    image: meridian:dev
+    build:
+      context: .

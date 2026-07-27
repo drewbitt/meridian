@@ -26,6 +26,28 @@
 				'# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ARG TAILWIND_VERSION=(?<currentValue>\\S+)'
 			],
 			versioningTemplate: 'semver'
+		},
+		{
+			customType: 'regex',
+			description: 'Update Chart.js pinned in the import map',
+			managerFilePatterns: ['/internal/templates/layout\\.templ$/'],
+			matchStrings: [
+				'"chart\\.js/auto": "https://esm\\.sh/chart\\.js@(?<currentValue>[^/"]+)/auto"'
+			],
+			datasourceTemplate: 'npm',
+			depNameTemplate: 'chart.js',
+			versioningTemplate: 'semver'
+		},
+		{
+			customType: 'regex',
+			description: 'Update Temporal polyfill pinned in the import map',
+			managerFilePatterns: ['/internal/templates/layout\\.templ$/'],
+			matchStrings: [
+				'"temporal-polyfill/global": "https://esm\\.sh/temporal-polyfill@(?<currentValue>[^/"]+)/global"'
+			],
+			datasourceTemplate: 'npm',
+			depNameTemplate: 'temporal-polyfill',
+			versioningTemplate: 'semver'
 		}
 	],
 	packageRules: [

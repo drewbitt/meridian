@@ -1,12 +1,10 @@
 services:
   meridian:
-    image: ghcr.io/drewbitt/meridian:latest
-    build:
-      context: .
+    image: ghcr.io/drewbitt/meridian:${MERIDIAN_TAG:-beta}
     ports:
       - "${MERIDIAN_PORT:-8090}:8090"
     environment:
-      ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-true}"
+      ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-first-user}"
       TZ: "${TZ:-UTC}"
     volumes:
       - meridian-data:/pb_data

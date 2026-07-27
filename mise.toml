@@ -48,7 +48,7 @@ outputs = ["internal/templates/**/*_templ.go", "assets/dist/styles.min.css"]
 [tasks.build]
 description = "Build production binary"
 depends = ["generate"]
-run = "go build -o meridian ./cmd/meridian"
+run = 'go build -trimpath -ldflags="-s -w" -o meridian ./cmd/meridian'
 sources = ["**/*.go", "go.mod", "go.sum"]
 outputs = ["meridian"]
 

@@ -17,29 +17,15 @@ The model is an estimate, not medical advice or a diagnosis.
 
 ## Run Meridian
 
-Docker Compose is the easiest way to keep the database and configuration together.
+Docker Compose is the easiest way to keep the database, restart policy, and container hardening together. You only need the deployment file:
 
 ```bash
-git clone https://github.com/drewbitt/meridian.git
-cd meridian
-cp .env.example .env
-docker compose up -d
-docker compose logs -f meridian
-```
-
-Open [http://localhost:8090](http://localhost:8090). PocketBase prints a setup link on the first launch. Use it to create the superuser, then register your Meridian account at `/register`.
-
-New registrations are enabled by default so the first account can be created. Once your account works, edit `.env`:
-
-```dotenv
-ALLOW_REGISTRATION=false
-```
-
-Apply the change with:
-
-```bash
+mkdir meridian && cd meridian
+curl -O https://raw.githubusercontent.com/drewbitt/meridian/main/compose.yaml
 docker compose up -d
 ```
+
+Open [http://localhost:8090](http://localhost:8090) and create your account. Meridian signs you in, detects your browser time zone, and takes you to Settings. By default, registration closes automatically after the first account.
 
 The compose service runs as an unprivileged user with a read-only root filesystem. Application data is kept in the `meridian-data` volume at `/pb_data`.
 
@@ -50,25 +36,24 @@ docker run -d \
   --name meridian \
   --publish 8090:8090 \
   --volume meridian-data:/pb_data \
-  --env ALLOW_REGISTRATION=true \
-  --env TZ=America/New_York \
   --read-only \
   --tmpfs /tmp \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
   --restart unless-stopped \
-  ghcr.io/drewbitt/meridian:latest
+  ghcr.io/drewbitt/meridian:beta
 ```
 
-After creating your account, recreate the container with `ALLOW_REGISTRATION=false`.
+The `beta` tag follows the supported prerelease channel. Pin a numbered tag when you want upgrades to be explicit.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ALLOW_REGISTRATION` | `true` | Accepts `true`, `false`, `yes`, `no`, `on`, `off`, `1`, or `0`. Disable it after creating the accounts you need. |
+| `ALLOW_REGISTRATION` | `first-user` | Creates one bootstrap account and then closes automatically. Set `true` for intentional multi-user signup or `false` to disable signup completely. |
 | `TZ` | `UTC` | Server time zone used when a user has not saved one, such as `America/New_York`. |
 | `MERIDIAN_PORT` | `8090` | Host port used by `compose.yaml`. This is not read by the application itself. |
+| `MERIDIAN_TAG` | `beta` | Image channel or immutable version used by `compose.yaml`. |
 
 User-specific options live on the Settings page:
 
@@ -78,7 +63,9 @@ User-specific options live on the Settings page:
 - Fitbit OAuth credentials
 - file imports for Health Connect, Apple Health, and Gadgetbridge
 
-The PocketBase superuser panel is available at `/_/`.
+To change container options, create a `.env` file beside `compose.yaml` with only the values you want to override. `.env.example` in the repository documents every Compose option.
+
+PocketBase administration is optional. If you need its superuser panel at `/_/`, create a superuser with the PocketBase setup link printed on first launch.
 
 ## Updates and backups
 
@@ -125,7 +112,7 @@ Fitbit says its Web API will be deprecated in September 2026. Existing Fitbit su
 The repository uses [mise](https://mise.jdx.dev/) to pin Go, templ, Tailwind CSS, Air, golangci-lint, and git-cliff. The bootstrap script downloads mise into the repository, so a global install is optional.
 
 ```bash
-git clone --recurse-submodules https://github.com/drewbitt/meridian.git
+git clone https://github.com/drewbitt/meridian.git
 cd meridian
 ./bin/mise install
 ./bin/mise run dev
@@ -149,8 +136,7 @@ The checked-in pre-commit hook runs the same `check` task as CI. Entering the re
 To build and run the production image locally:
 
 ```bash
-docker compose build
-docker compose up -d
+docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
 
 ## How it is put together
@@ -159,14 +145,13 @@ docker compose up -d
 |---|---|
 | Application and database | [PocketBase](https://pocketbase.io) with SQLite |
 | Server-rendered UI | [templ](https://templ.guide) |
-| Browser updates | [Datastar](https://data-star.dev) |
 | Styling | [Tailwind CSS](https://tailwindcss.com) |
 | Notifications | [ntfy](https://ntfy.sh) |
 | Energy model | FIPS Three Process Model implemented in Go |
 
 Templates and CSS are generated before every build, lint, or test task. The generated files are ignored by Git and embedded into the final binary.
 
-The optional `.agents/skills` submodule contains Go guidance for coding agents. It is not needed to build or run Meridian.
+The optional `.agents/skills` submodule contains Go guidance for coding agents. It is not needed to build, test, or run Meridian.
 
 ## License
 
