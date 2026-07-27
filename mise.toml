@@ -90,10 +90,12 @@ run = "golangci-lint fmt ./..."
 
 [tasks.tidy]
 description = "Tidy go.mod"
+depends = ["generate"]
 run = "go mod tidy"
 
 [tasks."tidy:check"]
 description = "Check that go.mod and go.sum are tidy"
+depends = ["generate"]
 run = "go mod tidy -diff"
 
 [tasks.check]
