@@ -2,8 +2,10 @@ package routes
 
 import (
 	"bytes"
+	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -174,6 +176,94 @@ func TestAPIImport_ReturnsJSON(t *testing.T) {
 		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
 			registerAPIRoutes(e, app)
 			headers["Authorization"] = tokenFor(t, app, testUserEmail)
+		},
+		Headers: headers,
+	}).Test(t)
+}
+
+func TestSettings_DoesNotRenderStoredGoogleClientSecret(t *testing.T) {
+	t.Setenv("GOOGLE_HEALTH_CLIENT_ID", "")
+	t.Setenv("GOOGLE_HEALTH_CLIENT_SECRET", "")
+
+	const storedSecret = "must-not-appear-in-html"
+	headers := map[string]string{}
+	(&tests.ApiScenario{
+		Name:           "stored oauth secret is not rendered",
+		Method:         http.MethodGet,
+		URL:            "/settings",
+		ExpectedStatus: http.StatusOK,
+		ExpectedContent: []string{
+			"Google Health",
+			"Saved — leave blank to keep",
+		},
+		TestAppFactory: setupApp,
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
+			registerSettingsRoutes(e, app)
+			user, err := app.FindAuthRecordByEmail("users", testUserEmail)
+			if err != nil {
+				t.Fatal(err)
+			}
+			collection, err := app.FindCollectionByNameOrId("settings")
+			if err != nil {
+				t.Fatal(err)
+			}
+			settings := core.NewRecord(collection)
+			settings.Set("user", user.Id)
+			settings.Set("google_health_client_id", "visible-client-id")
+			settings.Set("google_health_client_secret", storedSecret)
+			if err := app.Save(settings); err != nil {
+				t.Fatal(err)
+			}
+			headers["Authorization"] = tokenFor(t, app, testUserEmail)
+		},
+		AfterTestFunc: func(t testing.TB, _ *tests.TestApp, res *http.Response) {
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			html := string(body)
+			if strings.Contains(html, storedSecret) {
+				t.Fatal("stored Google OAuth client secret was rendered")
+			}
+			if !strings.Contains(html, "Saved — leave blank to keep") {
+				t.Fatal("saved-secret placeholder missing")
+			}
+		},
+		Headers: headers,
+	}).Test(t)
+}
+
+func TestSettings_RejectsInsecureDeploymentSiteURL(t *testing.T) {
+	headers := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
+	form := url.Values{
+		"site_url": {"http://meridian.example.com"},
+	}
+
+	(&tests.ApiScenario{
+		Name:           "public HTTP site URL is rejected",
+		Method:         http.MethodPost,
+		URL:            "/settings",
+		Body:           strings.NewReader(form.Encode()),
+		ExpectedStatus: http.StatusSeeOther,
+		TestAppFactory: setupApp,
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
+			registerSettingsRoutes(e, app)
+			headers["Authorization"] = tokenFor(t, app, testUserEmail)
+		},
+		AfterTestFunc: func(t testing.TB, app *tests.TestApp, res *http.Response) {
+			expectLocation(t, res, "/settings?health_error=invalid_site_url")
+			user, err := app.FindAuthRecordByEmail("users", testUserEmail)
+			if err != nil {
+				t.Fatal(err)
+			}
+			settings, err := app.FindFirstRecordByFilter(
+				"settings",
+				"user = {:user}",
+				map[string]any{"user": user.Id},
+			)
+			if err == nil && settings.GetString("site_url") != "" {
+				t.Errorf("invalid site URL was saved: %q", settings.GetString("site_url"))
+			}
 		},
 		Headers: headers,
 	}).Test(t)

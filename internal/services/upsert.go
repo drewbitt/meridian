@@ -18,6 +18,21 @@ func UpsertSleepRecord(app core.App, userID string, rec ingest.SleepRecord) (*co
 		params = map[string]any{"user": userID, "source": rec.Source, "start": PocketBaseDateTime(rec.SleepStart)}
 	}
 	existing, _ := app.FindFirstRecordByFilter("sleep_records", filter, params)
+	if rec.Source == ingest.SourceGoogleHealth {
+		// Absorb an overlapping legacy Fitbit row during the first Google
+		// Health backfill instead of retaining two copies of the same sleep.
+		if existing == nil {
+			existing, _ = app.FindFirstRecordByFilter(
+				"sleep_records",
+				"user = {:user} && source = 'fitbit' && sleep_start < {:end} && sleep_end > {:start}",
+				map[string]any{
+					"user":  userID,
+					"start": PocketBaseDateTime(rec.SleepStart),
+					"end":   PocketBaseDateTime(rec.SleepEnd),
+				},
+			)
+		}
+	}
 
 	var record *core.Record
 	if existing != nil {
@@ -41,6 +56,7 @@ func UpsertSleepRecord(app core.App, userID string, rec ingest.SleepRecord) (*co
 	record.Set("light_minutes", rec.LightMinutes)
 	record.Set("awake_minutes", rec.AwakeMinutes)
 	record.Set("is_nap", rec.IsNap)
+	record.Set("nap_explicit", rec.NapExplicit)
 
 	if err := app.Save(record); err != nil {
 		return nil, err

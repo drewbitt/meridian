@@ -10,9 +10,9 @@ lose or misrepresent sleep data.
 
 ### Sleep-data correctness
 
-- Fitbit fixtures cover main sleep, naps, millisecond and ISO timestamps,
-  daylight-saving transitions, delayed classification, token refresh, and partial
-  save failure.
+- Google Health fixtures cover reconciled main sleep, naps, pagination,
+  daylight-saving transitions, token refresh, insufficient scopes, rate limits,
+  and partial save failure.
 - Apple Health fixtures cover ZIP and XML input, multiple sources, exact
   duplicates, naps, and malformed records.
 - Health Connect fixtures cover all supported stage values, awake-in-bed time,
@@ -45,7 +45,7 @@ lose or misrepresent sleep data.
 
 - First-user registration, closed registration, sign-in, sign-out, and session
   expiry have route-level tests.
-- A multi-user test proves sleep records, settings, schedules, habits, Fitbit
+- A multi-user test proves sleep records, settings, schedules, habits, Google Health
   credentials, and API responses cannot cross account boundaries.
 - State-changing browser routes have a documented CSRF threat model and tests for
   the chosen protection.

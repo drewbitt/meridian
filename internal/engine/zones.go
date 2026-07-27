@@ -18,158 +18,185 @@ const (
 	ZoneSleep           = "sleep"
 )
 
+// ForecastConfidence describes how personalized a daily schedule is.
+type ForecastConfidence string
+
+// Forecast-confidence values describe how much recent personal sleep supports
+// the timing forecast.
+const (
+	ConfidenceNone        ForecastConfidence = "none"
+	ConfidenceLow         ForecastConfidence = "low"
+	ConfidencePreliminary ForecastConfidence = "preliminary"
+	ConfidenceModerate    ForecastConfidence = "moderate"
+	ConfidenceHigh        ForecastConfidence = "high"
+)
+
+// Energy-pattern values describe only displayable curve shape, not a measured
+// biological rhythm.
+const (
+	PatternUnclear = "unclear"
+	PatternOnePeak = "one_peak"
+	PatternTwoPeak = "two_peak"
+)
+
+// A 0.5-point KSS change is a conservative product-display policy, not a
+// claim about a biological detection limit. The FIPS transform is
+// KSS = 10.6 - 0.6*alertness, so this is 0.83 alertness units. Keeping this
+// explicit prevents sub-tenth-KSS plateaus from being marketed as a real dip.
+const minimumDisplayedKSSProminence = 0.5
+
 // Schedule holds the classified energy zones and derived times for a day.
 type Schedule struct {
-	Points          []EnergyPoint `json:"points"`
-	WakeTime        time.Time     `json:"wake_time"`
-	MorningWake     time.Time     `json:"morning_wake"`
-	CaffeineCutoff  time.Time     `json:"caffeine_cutoff"`
-	OptimalNapStart time.Time     `json:"optimal_nap_start"`
-	OptimalNapEnd   time.Time     `json:"optimal_nap_end"`
-	MelatoninWindow time.Time     `json:"melatonin_window"`
-	BestFocusStart  time.Time     `json:"best_focus_start"`
-	BestFocusEnd    time.Time     `json:"best_focus_end"`
-	MorningPeak     time.Time     `json:"morning_peak"`
-	AfternoonDip    time.Time     `json:"afternoon_dip"`
-	EveningPeak     time.Time     `json:"evening_peak"`
-	Sunrise         time.Time     `json:"sunrise"`
-	Sunset          time.Time     `json:"sunset"`
+	Points            []EnergyPoint      `json:"points"`
+	WakeTime          time.Time          `json:"wake_time"`
+	MorningWake       time.Time          `json:"morning_wake"`
+	CaffeineCutoff    time.Time          `json:"caffeine_cutoff"`
+	OptimalNapStart   time.Time          `json:"optimal_nap_start"`
+	OptimalNapEnd     time.Time          `json:"optimal_nap_end"`
+	MelatoninWindow   time.Time          `json:"melatonin_window"`
+	BestFocusStart    time.Time          `json:"best_focus_start"`
+	BestFocusEnd      time.Time          `json:"best_focus_end"`
+	MorningPeak       time.Time          `json:"morning_peak"`
+	AfternoonDip      time.Time          `json:"afternoon_dip"`
+	EveningPeak       time.Time          `json:"evening_peak"`
+	Sunrise           time.Time          `json:"sunrise"`
+	Sunset            time.Time          `json:"sunset"`
+	Confidence        ForecastConfidence `json:"confidence"`
+	ConfidenceReason  string             `json:"confidence_reason"`
+	ObservedNights    int                `json:"observed_nights"`
+	IsEstimate        bool               `json:"is_estimate"`
+	EnergyPattern     string             `json:"energy_pattern"`
+	DipProminence     float64            `json:"dip_prominence"`
+	AwaitingSleepData bool               `json:"awaiting_sleep_data"`
+	LastSync          time.Time          `json:"last_sync"`
 }
 
 // ClassifyZones assigns energy zone labels to each point and derives key times.
 // wakeTime is when the user woke up today (morning wake, not nap wake).
 // Optional sleepPeriods are used to detect nap recovery zones.
 func ClassifyZones(points []EnergyPoint, wakeTime time.Time, sleepPeriods ...SleepPeriod) Schedule {
+	return ClassifyZonesForSleepNeed(points, wakeTime, 8, sleepPeriods...)
+}
+
+// ClassifyZonesForSleepNeed classifies the curve and derives planning anchors
+// using the user's stated daily sleep need. The legacy MelatoninWindow field
+// stores the start of a two-hour estimated wind-down period; it is not a DLMO
+// or other measured melatonin phase marker.
+func ClassifyZonesForSleepNeed(points []EnergyPoint, wakeTime time.Time, sleepNeedHours float64, sleepPeriods ...SleepPeriod) Schedule {
 	if len(points) == 0 {
 		return Schedule{}
 	}
 
-	// First pass: classify each point.
 	classified := make([]EnergyPoint, len(points))
 	copy(classified, points)
-
-	// Find wake-only points (exclude sleep periods).
-	var wakePoints []int
-	for i, p := range classified {
-		if !p.Time.Before(wakeTime) {
-			wakePoints = append(wakePoints, i)
+	for i := range classified {
+		// A cached post-nap recovery label cannot be reconstructed without the
+		// original nap interval. Preserve it; recompute every other zone.
+		if classified[i].Zone != ZoneNapRecovery {
+			classified[i].Zone = ""
 		}
 	}
 
-	// Detect sleep inertia: from wake time until ~90 min or W decays.
 	inertiaEnd := wakeTime.Add(90 * time.Minute)
-	for _, idx := range wakePoints {
-		p := &classified[idx]
-		if p.Time.Before(inertiaEnd) {
-			// Check if alertness is still depressed (W component still significant).
-			// Heuristic: if KSS > 5 in the first 90 min, it's inertia.
-			if p.KSS > 5.0 || p.Time.Sub(wakeTime) < 30*time.Minute {
-				p.Zone = ZoneSleepInertia
+	sleepNeedHours = math.Max(4, math.Min(12, sleepNeedHours))
+	targetSleep := wakeTime.Add(time.Duration((24 - sleepNeedHours) * float64(time.Hour)))
+	windDownStart := targetSleep.Add(-2 * time.Hour)
+
+	// Mark actual sleep first and collect awake points eligible for shape
+	// detection. A nap interval must not be mistaken for a dip or peak.
+	var eligible []int
+	for i := range classified {
+		point := &classified[i]
+		if point.Time.Before(wakeTime) || inAnySleep(point.Time, sleepPeriods) {
+			point.Zone = ZoneSleep
+			continue
+		}
+		if point.Time.Before(inertiaEnd) {
+			if point.KSS > 5 || point.Time.Sub(wakeTime) < 30*time.Minute {
+				point.Zone = ZoneSleepInertia
 			}
+			continue
+		}
+		if point.Time.Before(windDownStart) {
+			eligible = append(eligible, i)
 		}
 	}
 
-	// Find local extrema in wake points after inertia.
 	type extremum struct {
 		idx   int
 		isMax bool
 		value float64
 		time  time.Time
 	}
-	var extrema []extremum
-
-	var postInertia []int
-	for _, idx := range wakePoints {
-		if !classified[idx].Time.Before(inertiaEnd) {
-			postInertia = append(postInertia, idx)
-		}
-	}
-	for i := 1; i < len(postInertia)-1; i++ {
-		prev := classified[postInertia[i-1]].Alertness
-		curr := classified[postInertia[i]].Alertness
-		next := classified[postInertia[i+1]].Alertness
-		if curr > prev && curr > next {
-			extrema = append(extrema, extremum{postInertia[i], true, curr, classified[postInertia[i]].Time})
-		} else if curr < prev && curr < next {
-			extrema = append(extrema, extremum{postInertia[i], false, curr, classified[postInertia[i]].Time})
+	smoothed := smoothAlertness(classified, eligible, 3)
+	var maxima []extremum
+	for i := 1; i < len(eligible)-1; i++ {
+		if smoothed[i] > smoothed[i-1] && smoothed[i] >= smoothed[i+1] {
+			idx := eligible[i]
+			maxima = append(maxima, extremum{idx, true, smoothed[i], classified[idx].Time})
 		}
 	}
 
-	// Identify morning peak (first max), afternoon dip (first min after morning peak),
-	// and evening peak (first max after afternoon dip).
 	var morningPeak, afternoonDip, eveningPeak *extremum
-	for i := range extrema {
-		e := &extrema[i]
-		switch {
-		case morningPeak == nil && e.isMax:
-			morningPeak = e
-		case morningPeak != nil && afternoonDip == nil && !e.isMax:
-			afternoonDip = e
-		case afternoonDip != nil && eveningPeak == nil && e.isMax:
-			eveningPeak = e
-		}
-	}
-
-	// Robust dip detection: if we found two peaks but no strict local minimum
-	// between them (common when C's rise masks U's dip), find the minimum
-	// value between the two peaks and use that as the afternoon dip. This
-	// captures the "plateau" that the FIPS model produces between the morning
-	// and evening energy peaks.
-	if morningPeak != nil && afternoonDip == nil {
-		// Find the second peak (first max after morning peak that has higher value,
-		// or the one closest to evening).
-		var secondPeak *extremum
-		for i := range extrema {
-			e := &extrema[i]
-			if e.isMax && e.time.After(morningPeak.time) {
-				secondPeak = e
-				break
+	bestProminence := 0.0
+	for i := 0; i < len(maxima); i++ {
+		for j := i + 1; j < len(maxima); j++ {
+			first, second := maxima[i], maxima[j]
+			if second.time.Sub(first.time) < 2*time.Hour {
+				continue
 			}
-		}
-		if secondPeak != nil {
-			// Find minimum between the two peaks.
-			minVal := math.MaxFloat64
-			var minIdx int
-			for _, idx := range postInertia {
-				p := classified[idx]
-				if p.Time.After(morningPeak.time) && p.Time.Before(secondPeak.time) && p.Alertness < minVal {
-					minVal = p.Alertness
-					minIdx = idx
+			minimum := extremum{value: math.MaxFloat64}
+			for k, idx := range eligible {
+				pointTime := classified[idx].Time
+				if !pointTime.After(first.time) || !pointTime.Before(second.time) {
+					continue
+				}
+				if smoothed[k] < minimum.value {
+					minimum = extremum{idx: idx, value: smoothed[k], time: pointTime}
 				}
 			}
-			if minVal < math.MaxFloat64 {
-				afternoonDip = &extremum{minIdx, false, minVal, classified[minIdx].Time}
-				eveningPeak = secondPeak
+			if minimum.value == math.MaxFloat64 {
+				continue
+			}
+			prominence := math.Min(first.value-minimum.value, second.value-minimum.value)
+			if prominence*0.6 >= minimumDisplayedKSSProminence && prominence > bestProminence {
+				firstCopy, minimumCopy, secondCopy := first, minimum, second
+				morningPeak = &firstCopy
+				afternoonDip = &minimumCopy
+				eveningPeak = &secondCopy
+				bestProminence = prominence
 			}
 		}
 	}
 
-	// If still no two peaks found but we have at least one peak and enough
-	// post-inertia data, detect an implicit dip as the minimum in the middle
-	// third of the wake period and use global max as evening peak.
-	if morningPeak == nil && len(postInertia) > 12 {
-		// Use the overall global max as the sole peak.
-		var globalMax *extremum
-		for _, idx := range postInertia {
-			p := classified[idx]
-			if globalMax == nil || p.Alertness > globalMax.value {
-				globalMax = &extremum{idx, true, p.Alertness, p.Time}
+	pattern := PatternTwoPeak
+	var solePeak *extremum
+	if morningPeak == nil {
+		pattern = PatternUnclear
+		// Do not label a peak from a tiny partial series. At 5-minute sampling,
+		// twelve eligible points provide one hour of post-inertia context.
+		if len(eligible) >= 12 {
+			for k, idx := range eligible {
+				if solePeak == nil || smoothed[k] > solePeak.value {
+					solePeak = &extremum{idx: idx, isMax: true, value: smoothed[k], time: classified[idx].Time}
+				}
 			}
 		}
-		morningPeak = globalMax
+		if solePeak != nil {
+			pattern = PatternOnePeak
+			if solePeak.time.Before(wakeTime.Add(8 * time.Hour)) {
+				morningPeak = solePeak
+			} else {
+				eveningPeak = solePeak
+			}
+		}
 	}
 
-	// Assign zones to unclassified points.
 	for i := range classified {
 		p := &classified[i]
 		if p.Zone != "" {
-			continue // already classified (inertia or sleep)
-		}
-		if p.Time.Before(wakeTime) {
-			p.Zone = ZoneSleep
 			continue
 		}
-
 		switch {
 		case morningPeak != nil && isNearExtremum(p.Time, morningPeak.time, 60*time.Minute):
 			p.Zone = ZoneMorningPeak
@@ -182,19 +209,13 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time, sleepPeriods ...Sle
 		}
 	}
 
-	// Melatonin window: 14-16h after wake time.
-	melStart := wakeTime.Add(14 * time.Hour)
-	melEnd := wakeTime.Add(16 * time.Hour)
 	for i := range classified {
 		p := &classified[i]
-		if !p.Time.Before(melStart) && p.Time.Before(melEnd) {
+		if p.Zone != ZoneSleep && !p.Time.Before(windDownStart) && p.Time.Before(targetSleep) {
 			p.Zone = ZoneMelatoninWindow
 		}
 	}
 
-	// Wind-down: after the first local peak (evening peak when present, or the
-	// global circadian peak), mark points where alertness drops below 70% of
-	// that peak value.
 	peakForWindDown := eveningPeak
 	if peakForWindDown == nil && morningPeak != nil {
 		peakForWindDown = morningPeak
@@ -204,16 +225,13 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time, sleepPeriods ...Sle
 		for i := range classified {
 			p := &classified[i]
 			if p.Time.After(peakForWindDown.time) && p.Alertness < windDownThreshold && p.Zone == ZoneNormal {
-				if p.Time.Before(melStart) {
+				if p.Time.Before(windDownStart) {
 					p.Zone = ZoneWindDown
 				}
 			}
 		}
 	}
 
-	// Mark nap recovery zones: 30 minutes after each nap ends.
-	// Nap recovery overwrites normal and afternoon_dip zones since the user
-	// just woke from a nap — that's the most relevant context.
 	for _, sp := range sleepPeriods {
 		if !sp.IsNap {
 			continue
@@ -223,7 +241,7 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time, sleepPeriods ...Sle
 		for i := range classified {
 			p := &classified[i]
 			if !p.Time.Before(napEnd) && p.Time.Before(recoveryEnd) {
-				if p.Zone == ZoneNormal || p.Zone == ZoneAfternoonDip {
+				if p.Zone != ZoneSleep {
 					p.Zone = ZoneNapRecovery
 				}
 			}
@@ -231,11 +249,18 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time, sleepPeriods ...Sle
 	}
 
 	sched := Schedule{
-		Points:          classified,
-		WakeTime:        wakeTime,
-		MorningWake:     wakeTime,
-		MelatoninWindow: melStart,
-		CaffeineCutoff:  melStart.Add(-10 * time.Hour),
+		Points:      classified,
+		WakeTime:    wakeTime,
+		MorningWake: wakeTime,
+		// The persisted JSON names predate the distinction between a planning
+		// cue and a biological marker. Keep them for compatibility, while the
+		// product labels this as estimated wind-down.
+		MelatoninWindow: windDownStart,
+		// Conservative planning cutoff: about ten hours before the target
+		// sleep time, not a claim that caffeine has a ten-hour half-life.
+		CaffeineCutoff: targetSleep.Add(-10 * time.Hour),
+		EnergyPattern:  pattern,
+		DipProminence:  math.Round(bestProminence*100) / 100,
 	}
 
 	// Populate peak/dip times from detected extrema.
@@ -255,40 +280,13 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time, sleepPeriods ...Sle
 		sched.OptimalNapEnd = afternoonDip.time.Add(30 * time.Minute)
 	}
 
-	// Best focus: 2h window centred on the morning peak. We prefer the morning
-	// peak (the homeostatic peak, where S is still high and inertia has cleared)
-	// over the evening peak (the circadian peak at ~5pm). While the true
-	// circadian alertness maximum is in the late afternoon, the morning window
-	// is more actionable for knowledge work and aligns with how RISE presents
-	// focus windows. If morning peak was detected, use it directly. Otherwise
-	// fall back to the global max between inertia end and noon+3h.
+	// Use the first clear peak for a two-peak day and the sole modeled maximum
+	// for a one-peak day. Do not invent a morning maximum for actionability.
 	var peakPoint *EnergyPoint
-	if morningPeak != nil {
+	if pattern == PatternTwoPeak && morningPeak != nil {
 		peakPoint = &classified[morningPeak.idx]
-	} else {
-		// Fallback: global max in the morning-to-early-afternoon window.
-		earlyAfternoon := wakeTime.Add(8 * time.Hour) // roughly noon-ish for typical wakers
-		for i := range classified {
-			p := &classified[i]
-			if p.Time.Before(inertiaEnd) || p.Time.After(earlyAfternoon) {
-				continue
-			}
-			if peakPoint == nil || p.Alertness > peakPoint.Alertness {
-				peakPoint = p
-			}
-		}
-	}
-	// If still nothing found, use global max before melatonin.
-	if peakPoint == nil {
-		for i := range classified {
-			p := &classified[i]
-			if p.Time.Before(inertiaEnd) || !p.Time.Before(melStart) {
-				continue
-			}
-			if peakPoint == nil || p.Alertness > peakPoint.Alertness {
-				peakPoint = p
-			}
-		}
+	} else if solePeak != nil {
+		peakPoint = &classified[solePeak.idx]
 	}
 	if peakPoint != nil {
 		sched.BestFocusStart = peakPoint.Time.Add(-60 * time.Minute)
@@ -300,6 +298,29 @@ func ClassifyZones(points []EnergyPoint, wakeTime time.Time, sleepPeriods ...Sle
 	}
 
 	return sched
+}
+
+func smoothAlertness(points []EnergyPoint, indexes []int, radius int) []float64 {
+	smoothed := make([]float64, len(indexes))
+	for i := range indexes {
+		start := max(0, i-radius)
+		end := min(len(indexes)-1, i+radius)
+		var total float64
+		for j := start; j <= end; j++ {
+			total += points[indexes[j]].Alertness
+		}
+		smoothed[i] = total / float64(end-start+1)
+	}
+	return smoothed
+}
+
+func inAnySleep(t time.Time, periods []SleepPeriod) bool {
+	for _, period := range periods {
+		if !t.Before(period.Start) && t.Before(period.End) {
+			return true
+		}
+	}
+	return false
 }
 
 func isNearExtremum(t, extremumTime time.Time, window time.Duration) bool {

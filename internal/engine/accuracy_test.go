@@ -14,12 +14,9 @@ func TestAccuracy_Scenarios(t *testing.T) {
 	loc := time.UTC
 
 	t.Run("1_SingleNight_8h", func(t *testing.T) {
-		// Well-rested: 11pm-7am. Expect:
-		// - Sleep inertia dip at 7am (~30min), alertness gradually rises
-		// - Morning peak around 10-11am (C rising + S still high)
-		// - Post-lunch dip around 1-3pm (U nadir)
-		// - Evening peak around 5-7pm (C peak near acrophase 16.8h)
-		// - Decline after 8pm toward sleepiness
+		// With the published FIPS parameters, a regular 11pm-7am night has
+		// sleep inertia followed by one modeled late-afternoon maximum. The
+		// source model does not support forcing a morning maximum and dip.
 		params := DefaultParams()
 		periods := []SleepPeriod{
 			{Start: d(2024, 1, 15, 23, 0, loc), End: d(2024, 1, 16, 7, 0, loc)},
@@ -31,13 +28,18 @@ func TestAccuracy_Scenarios(t *testing.T) {
 		a := analyze(points, wake)
 		a.log(t)
 
-		// Validate expected shape
-		a.expectPeakBetween(t, "morning peak", 9, 12)
-		a.expectDipBetween(t, "afternoon dip", 12, 16)
-		a.expectPeakBetween(t, "evening peak", 16, 20)
 		a.expectInertia(t, points)
 		a.expectKSSRange(t, 1, 9)
 		a.expectPeakAlertness(t, 11, 18) // reasonable peak range
+		if schedule.EnergyPattern != PatternOnePeak {
+			t.Errorf("published model pattern=%q, want one_peak", schedule.EnergyPattern)
+		}
+		if schedule.EveningPeak.Hour() < 15 || schedule.EveningPeak.Hour() > 19 {
+			t.Errorf("sole peak %s outside late-afternoon window", schedule.EveningPeak.Format("15:04"))
+		}
+		if !schedule.AfternoonDip.IsZero() || !schedule.OptimalNapStart.IsZero() {
+			t.Error("classifier invented an afternoon dip/nap window without actionable prominence")
+		}
 
 		// Verify schedule derived times
 		t.Logf("Schedule: BestFocus %s-%s, CaffeineCutoff %s, Melatonin %s, NapWindow %s-%s",
@@ -104,15 +106,10 @@ func TestAccuracy_Scenarios(t *testing.T) {
 		if debt.Hours > 0.5 {
 			t.Errorf("14 days of 8h sleep should have near-zero debt, got %.1f", debt.Hours)
 		}
-		a.expectPeakBetween(t, "morning peak", 9, 12)
-
-		// Validate the zone classifier finds the dip via robust detection.
 		schedule := ClassifyZones(pts, wake)
-		if schedule.OptimalNapStart.IsZero() {
-			t.Logf("NOTE: no nap window set — afternoon dip may be too shallow for robust detection with high S")
-		} else {
-			t.Logf("✓ nap window: %s-%s (from robust dip detection)",
-				schedule.OptimalNapStart.Format("15:04"), schedule.OptimalNapEnd.Format("15:04"))
+		if schedule.EnergyPattern != PatternOnePeak || !schedule.OptimalNapStart.IsZero() {
+			t.Errorf("regular history shape=%q nap=%s; want one clear peak and no invented dip",
+				schedule.EnergyPattern, schedule.OptimalNapStart.Format("15:04"))
 		}
 	})
 
@@ -155,11 +152,10 @@ func TestAccuracy_Scenarios(t *testing.T) {
 		a := analyze(pts, wake)
 		a.log(t)
 
-		// Should still show a peak in the morning window even with irregular schedule.
-		a.expectPeakBetween(t, "morning peak", 9, 13)
-
-		// Validate zone classifier.
 		schedule := ClassifyZones(pts, wake)
+		if schedule.EnergyPattern != PatternOnePeak {
+			t.Errorf("slightly irregular history shape=%q, want one_peak", schedule.EnergyPattern)
+		}
 		t.Logf("Schedule: BestFocus %s-%s, NapWindow %s-%s",
 			schedule.BestFocusStart.Format("15:04"), schedule.BestFocusEnd.Format("15:04"),
 			schedule.OptimalNapStart.Format("15:04"), schedule.OptimalNapEnd.Format("15:04"))
@@ -294,8 +290,10 @@ func TestAccuracy_Scenarios(t *testing.T) {
 		t.Logf("Adjusted params: ha=%.2f (was 14.3), sInitial=%.2f (was 7.96), decay=%.4f (was -0.0353)",
 			debtParams.SUpperAsymptote, debtParams.SInitial, debtParams.SDecayRate)
 
-		// Should still show dual-peak pattern.
-		a.expectPeakBetween(t, "morning peak", 9, 12)
+		schedule := ClassifyZones(pts, wake)
+		if schedule.EnergyPattern != PatternOnePeak {
+			t.Errorf("mixed-week shape=%q, want one_peak under published parameters", schedule.EnergyPattern)
+		}
 	})
 
 	t.Run("9_NightOwl_Chronotype", func(t *testing.T) {
@@ -467,60 +465,6 @@ func (a curveAnalysis) log(t *testing.T) {
 	}
 }
 
-func (a curveAnalysis) expectPeakBetween(t *testing.T, name string, hourStart, hourEnd int) {
-	t.Helper()
-	for _, e := range a.extrema {
-		if e.isMax && e.time.Hour() >= hourStart && e.time.Hour() < hourEnd {
-			t.Logf("✓ %s found at %s (%.2f)", name, e.time.Format("15:04"), e.value)
-			return
-		}
-	}
-	t.Errorf("✗ %s: no local max between %d:00-%d:00", name, hourStart, hourEnd)
-}
-
-func (a curveAnalysis) expectDipBetween(t *testing.T, name string, hourStart, hourEnd int) {
-	t.Helper()
-	// First check for a strict local minimum.
-	for _, e := range a.extrema {
-		if !e.isMax && e.time.Hour() >= hourStart && e.time.Hour() < hourEnd {
-			t.Logf("✓ %s found (local min) at %s (%.2f)", name, e.time.Format("15:04"), e.value)
-			return
-		}
-	}
-	// If no strict local min, check for a relative dip (minimum between
-	// adjacent peaks). This matches the zone classifier's robust detection.
-	var peaks []struct {
-		hour int
-		val  float64
-	}
-	for _, e := range a.extrema {
-		if e.isMax {
-			peaks = append(peaks, struct {
-				hour int
-				val  float64
-			}{e.time.Hour(), e.value})
-		}
-	}
-	if len(peaks) >= 2 {
-		// Find minimum between the two peaks from hourly data.
-		minVal := math.MaxFloat64
-		var minHour int
-		for h, v := range a.hourlyAlertness {
-			if h > peaks[0].hour && h < peaks[1].hour && v < minVal {
-				minVal = v
-				minHour = h
-			}
-		}
-		if minVal < math.MaxFloat64 && minHour >= hourStart && minHour < hourEnd {
-			depth := math.Min(peaks[0].val, peaks[1].val) - minVal
-			t.Logf("✓ %s found (plateau min) at %d:00 (%.2f, depth=%.2f below lower peak)",
-				name, minHour, minVal, depth)
-			return
-		}
-	}
-	t.Errorf("✗ %s: no dip between %d:00-%d:00", name, hourStart, hourEnd)
-}
-
 func (a curveAnalysis) expectInertia(t *testing.T, points []EnergyPoint) {
 	t.Helper()
 	if len(points) < 2 {
@@ -594,9 +538,10 @@ func makeSleepRecords(periods []SleepPeriod, durOverrideH float64) []SleepRecord
 	return records
 }
 
-// TestAccuracy_DualPeakShape verifies the model produces the expected RISE-style
-// dual energy peak (morning + evening) with an afternoon dip between them.
-func TestAccuracy_DualPeakShape(t *testing.T) {
+// TestAccuracy_DoesNotForceDualPeak verifies that the published FIPS
+// parameters are represented honestly instead of being inflated to imitate a
+// product screenshot.
+func TestAccuracy_DoesNotForceDualPeak(t *testing.T) {
 	loc := time.UTC
 	params := DefaultParams()
 	periods := []SleepPeriod{
@@ -619,36 +564,15 @@ func TestAccuracy_DualPeakShape(t *testing.T) {
 
 	t.Logf("Found %d peaks and %d dips in the curve", peaks, dips)
 
-	// The FIPS model with UAmplitude=0.8 should produce at least 2 peaks.
-	if peaks < 2 {
-		t.Errorf("expected at least 2 peaks (dual energy peak), got %d", peaks)
-		t.Log("Extrema:")
-		for _, e := range a.extrema {
-			kind := "dip"
-			if e.isMax {
-				kind = "PEAK"
-			}
-			t.Logf("  %s at %s = %.2f", kind, e.time.Format("15:04"), e.value)
-		}
+	if peaks != 0 || dips != 0 {
+		t.Errorf("published curve unexpectedly has strict extrema: peaks=%d dips=%d", peaks, dips)
 	}
-
-	// The afternoon dip should be noticeable — at least 1.0 unit below the lower peak.
-	if peaks >= 2 && dips >= 1 {
-		var peakVals []float64
-		var dipVal float64
-		for _, e := range a.extrema {
-			if e.isMax {
-				peakVals = append(peakVals, e.value)
-			} else if dipVal == 0 {
-				dipVal = e.value
-			}
-		}
-		lowerPeak := math.Min(peakVals[0], peakVals[1])
-		dipDepth := lowerPeak - dipVal
-		t.Logf("Dip depth: %.2f units below lower peak", dipDepth)
-		if dipDepth < 0.5 {
-			t.Errorf("afternoon dip too shallow: depth=%.2f (want >= 0.5)", dipDepth)
-		}
+	schedule := ClassifyZones(pts, wake)
+	if schedule.EnergyPattern != PatternOnePeak {
+		t.Errorf("display pattern=%q, want one_peak", schedule.EnergyPattern)
+	}
+	if !schedule.AfternoonDip.IsZero() || !schedule.OptimalNapStart.IsZero() {
+		t.Error("display invented a dip from a monotonic curve")
 	}
 }
 
@@ -1019,7 +943,7 @@ func TestAccuracy_DebtTaperFormula(t *testing.T) {
 }
 
 // TestAccuracy_MissingDataGapImpact simulates what happens when the user has
-// historical sleep data but recent days are missing (Fitbit sync failed, user
+// historical sleep data but recent days are missing (device sync failed, user
 // didn't wear tracker, etc). This proves the silent debt underestimation bug.
 func TestAccuracy_MissingDataGapImpact(t *testing.T) {
 	loc := time.UTC
@@ -1206,25 +1130,11 @@ func TestAccuracy_GapCountInDebtWindow(t *testing.T) {
 			expectStale: false,
 		},
 		{
-			// Skip daysAgo=0 (tonight) only — all 13 completed nights present.
-			// No gap because daysAgo=0 is excluded from counting.
-			name: "missing only tonight (normal during daytime)",
-			records: func() []SleepRecord {
-				var r []SleepRecord
-				for i := 1; i < 14; i++ {
-					r = append(r, SleepRecord{Date: ref.AddDate(0, 0, -i), DurationMinutes: 480})
-				}
-				return r
-			}(),
-			expectGaps:  0,
-			expectStale: false,
-		},
-		{
-			// Skip daysAgo=0 and daysAgo=1 — last night is actually missing.
+			// Sleep-day zero is the main sleep ending today.
 			name: "missing last night",
 			records: func() []SleepRecord {
 				var r []SleepRecord
-				for i := 2; i < 14; i++ {
+				for i := 1; i < 14; i++ {
 					r = append(r, SleepRecord{Date: ref.AddDate(0, 0, -i), DurationMinutes: 480})
 				}
 				return r
@@ -1236,7 +1146,7 @@ func TestAccuracy_GapCountInDebtWindow(t *testing.T) {
 			name: "missing last 3 nights",
 			records: func() []SleepRecord {
 				var r []SleepRecord
-				for i := 4; i < 14; i++ { // skip daysAgo 1-3
+				for i := 3; i < 14; i++ {
 					r = append(r, SleepRecord{Date: ref.AddDate(0, 0, -i), DurationMinutes: 480})
 				}
 				return r
@@ -1249,7 +1159,7 @@ func TestAccuracy_GapCountInDebtWindow(t *testing.T) {
 			records: []SleepRecord{
 				{Date: ref.AddDate(0, 0, -10), DurationMinutes: 480},
 			},
-			expectGaps:  12, // 13 completed nights - 1 with data
+			expectGaps:  13,
 			expectStale: true,
 		},
 	}

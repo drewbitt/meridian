@@ -18,12 +18,12 @@ func UpdateUserSchedule(app core.App, userID string) error {
 	if err != nil {
 		return fmt.Errorf("compute schedule: %w", err)
 	}
-	return storeSchedule(app, userID, schedule.MorningWake, rawPoints)
+	return storeSchedule(app, userID, schedule, rawPoints)
 }
 
 // RunMorningJob computes and stores the energy schedule for a user,
 // and dispatches scheduled notifications if enabled.
-// Notification delivery is idempotent per day even when Fitbit sync or a
+// Notification delivery is idempotent per day even when Google Health sync or a
 // manual entry already created today's schedule.
 func RunMorningJob(app core.App, userID string) error {
 	loc := UserLocation(app, userID)
@@ -39,8 +39,15 @@ func RunMorningJob(app core.App, userID string) error {
 		return fmt.Errorf("compute schedule: %w", err)
 	}
 
-	if err := storeSchedule(app, userID, schedule.MorningWake, rawPoints); err != nil {
+	if err := storeSchedule(app, userID, schedule, rawPoints); err != nil {
 		return fmt.Errorf("store schedule: %w", err)
+	}
+
+	summaryTitle, summaryReady := scheduleSummaryNotification(schedule, time.Now(), loc)
+	if !summaryReady {
+		// Keep the schedule/data-status cache current, but do not consume the
+		// daily summary key before today's completed main sleep is available.
+		return nil
 	}
 
 	schedRec, err := app.FindFirstRecordByFilter("energy_schedules",
@@ -58,42 +65,29 @@ func RunMorningJob(app core.App, userID string) error {
 	if settings.GetBool("notifications_enabled") && settings.GetString("ntfy_topic") != "" {
 		siteURL := settings.GetString("site_url")
 
-		// Warn user if sleep data is stale or insufficient.
-		switch debt.Freshness {
-		case engine.FreshnessStale:
-			if err := SendNotification(buildNotif(settings, siteURL,
-				"Sleep data out of date",
-				fmt.Sprintf("No sleep data for %d of the last 13 nights. Your schedule may be inaccurate. Try syncing your tracker.", debt.GapDays),
-				4,
-				time.Time{},
-				[]string{"warning", "zzz"},
-			)); err != nil {
-				slog.Error("failed staleness notification", "user_id", userID, "error", err)
-			}
-		case engine.FreshnessInsufficient:
-			if err := SendNotification(buildNotif(settings, siteURL,
-				"Not enough sleep data",
-				fmt.Sprintf("Only %d of 13 nights have data. Sync your tracker or add sleep manually for accurate predictions.", 13-debt.GapDays),
-				4,
-				time.Time{},
-				[]string{"warning", "zzz"},
-			)); err != nil {
-				slog.Error("failed insufficient-data notification", "user_id", userID, "error", err)
-			}
-		}
-
 		morningMsg := fmt.Sprintf("Sleep debt: %.1fh (%s).", debt.Hours, debt.Category)
-		if !schedule.BestFocusStart.IsZero() {
-			morningMsg += fmt.Sprintf(" Best focus: %s-%s.",
+		if debt.IsLowerBound {
+			morningMsg = fmt.Sprintf("Observed sleep debt lower bound: %.1fh from %d night(s).", debt.Hours, debt.ObservedNights)
+		}
+		if reliableModelTiming(schedule.Confidence) && !schedule.BestFocusStart.IsZero() {
+			morningMsg += fmt.Sprintf(" Modeled high energy: %s-%s.",
 				schedule.BestFocusStart.In(loc).Format("3:04pm"),
 				schedule.BestFocusEnd.In(loc).Format("3:04pm"),
 			)
+		} else if schedule.Confidence == engine.ConfidencePreliminary || schedule.Confidence == engine.ConfidenceLow {
+			morningMsg += " Timing is a rough planning estimate; precise model-timed alerts are paused."
 		}
-		if debt.Freshness == engine.FreshnessRecent && debt.LastNightMissing {
-			morningMsg += " (no sleep data for last night)"
+		if len(schedule.Points) == 0 && debt.ObservedNights > 0 {
+			if schedule.ConfidenceReason != "" {
+				morningMsg += " Today's timing curve was withheld: " + schedule.ConfidenceReason + "."
+			} else {
+				morningMsg += " No recent main sleep was found, so today's curve was not forecast."
+			}
+		} else if debt.IsEstimate {
+			morningMsg += fmt.Sprintf(" %d of 14 sleep days were estimated from stable recent sleep.", debt.EstimatedNights)
 		}
 		if err := SendNotification(buildNotif(settings, siteURL,
-			"Good morning!",
+			summaryTitle,
 			morningMsg,
 			3,
 			time.Time{},
@@ -115,7 +109,28 @@ func RunMorningJob(app core.App, userID string) error {
 	return nil
 }
 
-func storeSchedule(app core.App, userID string, wakeTime time.Time, rawPoints []engine.EnergyPoint) error {
+func scheduleSummaryNotification(schedule engine.Schedule, now time.Time, loc *time.Location) (string, bool) {
+	if len(schedule.Points) == 0 || schedule.MorningWake.IsZero() {
+		return "", false
+	}
+	localNow := now.In(loc)
+	localWake := schedule.MorningWake.In(loc)
+	nowY, nowM, nowD := localNow.Date()
+	wakeY, wakeM, wakeD := localWake.Date()
+	if nowY != wakeY || nowM != wakeM || nowD != wakeD {
+		return "", false
+	}
+	age := localNow.Sub(localWake)
+	if age < 0 || age > maxForecastWakeAge {
+		return "", false
+	}
+	if age <= 4*time.Hour {
+		return "Good morning!", true
+	}
+	return "Today's sleep synced", true
+}
+
+func storeSchedule(app core.App, userID string, schedule engine.Schedule, rawPoints []engine.EnergyPoint) error {
 	collection, err := app.FindCollectionByNameOrId("energy_schedules")
 	if err != nil {
 		return err
@@ -138,8 +153,12 @@ func storeSchedule(app core.App, userID string, wakeTime time.Time, rawPoints []
 		record.Set("date", today)
 	}
 
-	record.Set("wake_time", wakeTime)
+	record.Set("wake_time", schedule.MorningWake)
 	record.Set("schedule_json", rawPoints)
+	record.Set("confidence", string(schedule.Confidence))
+	record.Set("confidence_reason", schedule.ConfidenceReason)
+	record.Set("observed_nights", schedule.ObservedNights)
+	record.Set("is_estimate", schedule.IsEstimate)
 
 	return app.Save(record)
 }
@@ -198,7 +217,15 @@ func DispatchUpcomingNotifications(app core.App, userID string, horizon time.Dur
 		return nil
 	}
 
-	schedule := engine.ClassifyZones(points, wakeTime)
+	sleepNeed := settings.GetFloat("sleep_need_hours")
+	if sleepNeed <= 0 {
+		sleepNeed = 8
+	}
+	schedule := engine.ClassifyZonesForSleepNeed(points, wakeTime, sleepNeed)
+	schedule.Confidence = engine.ForecastConfidence(schedRec.GetString("confidence"))
+	schedule.ConfidenceReason = schedRec.GetString("confidence_reason")
+	schedule.ObservedNights = schedRec.GetInt("observed_nights")
+	schedule.IsEstimate = schedRec.GetBool("is_estimate")
 	// ClassifyZones doesn't set MorningWake or solar times (those come from
 	// ComputeUserSchedule). Set them so habit anchors resolve correctly.
 	schedule.MorningWake = wakeTime
@@ -221,40 +248,44 @@ func DispatchUpcomingNotifications(app core.App, userID string, horizon time.Dur
 	}
 	var candidates []candidate
 
+	// Only turn model-derived estimates into proactive alerts when recent sleep
+	// supports at least a moderate-confidence personalized schedule.
+	reliableTiming := reliableModelTiming(schedule.Confidence)
+
 	// Caffeine cutoff: 30 min before cutoff time.
-	if !schedule.CaffeineCutoff.IsZero() {
+	if reliableTiming && !schedule.CaffeineCutoff.IsZero() {
 		candidates = append(candidates, candidate{
 			key: "caffeine_cutoff",
 			at:  schedule.CaffeineCutoff.Add(-30 * time.Minute),
 			notif: buildNotif(settings, siteURL,
 				"Caffeine Cutoff Soon",
-				fmt.Sprintf("Last call for caffeine at %s", schedule.CaffeineCutoff.In(loc).Format("3:04pm")),
+				fmt.Sprintf("Conservative caffeine cutoff at %s (about 10 hours before target sleep)", schedule.CaffeineCutoff.In(loc).Format("3:04pm")),
 				3, time.Time{}, []string{"coffee", "warning"},
 			),
 		})
 	}
 
-	// Melatonin window: 30 min before window opens.
-	if !schedule.MelatoninWindow.IsZero() {
+	// Estimated wind-down: 30 min before the planning window starts.
+	if reliableTiming && !schedule.MelatoninWindow.IsZero() {
 		candidates = append(candidates, candidate{
 			key: "melatonin_window",
 			at:  schedule.MelatoninWindow.Add(-30 * time.Minute),
 			notif: buildNotif(settings, siteURL,
-				"Melatonin Window Opening",
-				"Your melatonin window opens in 30 minutes. Start winding down.",
+				"Wind-Down in 30 Minutes",
+				"Your estimated wind-down starts in 30 minutes. This is a planning cue, not a melatonin measurement.",
 				4, time.Time{}, []string{"crescent_moon", "zzz"},
 			),
 		})
 	}
 
 	// Optimal nap window.
-	if !schedule.OptimalNapStart.IsZero() {
+	if reliableTiming && !schedule.OptimalNapStart.IsZero() {
 		candidates = append(candidates, candidate{
 			key: "nap_window",
 			at:  schedule.OptimalNapStart,
 			notif: buildNotif(settings, siteURL,
-				"Optimal Nap Window",
-				fmt.Sprintf("Good time for a 20-min nap until %s", schedule.OptimalNapEnd.In(loc).Format("3:04pm")),
+				"Optional Short-Nap Window",
+				fmt.Sprintf("A clear modeled dip runs until %s. Nap only if it fits your sleep plan.", schedule.OptimalNapEnd.In(loc).Format("3:04pm")),
 				2, time.Time{}, []string{"bed", "battery"},
 			),
 		})
@@ -264,6 +295,9 @@ func DispatchUpcomingNotifications(app core.App, userID string, horizon time.Dur
 	habits, _ := GetUserHabits(app, userID)
 	for _, h := range habits {
 		if !h.Notify {
+			continue
+		}
+		if isModelDerivedAnchor(h.Anchor) && !reliableTiming {
 			continue
 		}
 		habitTime := ResolveHabitTime(h, schedule, loc)
@@ -315,25 +349,35 @@ func DispatchUpcomingNotifications(app core.App, userID string, horizon time.Dur
 // SendPostNapNotification sends a lightweight notification when a new nap is detected,
 // with updated energy forecast info. This replaces the "good morning" that would have
 // incorrectly fired after a nap.
-func SendPostNapNotification(app core.App, userID string, napEnd time.Time) {
+func SendPostNapNotification(app core.App, userID string, _ time.Time) {
 	settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
 	if err != nil || !settings.GetBool("notifications_enabled") || settings.GetString("ntfy_topic") == "" {
 		return
 	}
 
-	loc := UserLocation(app, userID)
 	siteURL := settings.GetString("site_url")
 
-	// Estimate rebound time (~30 min after nap).
-	reboundTime := napEnd.Add(30 * time.Minute).In(loc).Format("3:04pm")
-
-	msg := fmt.Sprintf("Nap logged. Energy rebound expected by %s.", reboundTime)
+	msg := "Nap logged. Today's curve was updated; brief sleep inertia can follow a nap, so compare the forecast with how you feel."
 	if err := SendNotification(buildNotif(settings, siteURL,
 		"Nap Detected",
 		msg,
 		2, time.Time{}, []string{"bed", "battery"},
 	)); err != nil {
 		slog.Error("failed post-nap notification", "user_id", userID, "error", err)
+	}
+}
+
+func reliableModelTiming(confidence engine.ForecastConfidence) bool {
+	return confidence == engine.ConfidenceModerate || confidence == engine.ConfidenceHigh
+}
+
+func isModelDerivedAnchor(anchor string) bool {
+	switch anchor {
+	case "best_focus", "morning_peak", "afternoon_dip", "nap_window",
+		"evening_peak", "caffeine_cutoff", "melatonin_window":
+		return true
+	default:
+		return false
 	}
 }
 

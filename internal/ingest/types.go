@@ -16,12 +16,13 @@ type SleepRecord struct {
 	LightMinutes    int       `json:"light_minutes,omitempty"`
 	AwakeMinutes    int       `json:"awake_minutes,omitempty"`
 	IsNap           bool      `json:"is_nap,omitempty"`
+	NapExplicit     bool      `json:"nap_explicit,omitempty"`
 }
 
 // Source identifiers for sleep records.
 const (
 	SourceManual        = "manual"
-	SourceFitbit        = "fitbit"
+	SourceGoogleHealth  = "google_health"
 	SourceHealthConnect = "healthconnect"
 	SourceAppleHealth   = "applehealth"
 	SourceGadgetbridge  = "gadgetbridge"

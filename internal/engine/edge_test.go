@@ -784,8 +784,8 @@ func TestCalculateSleepDebt_FreshnessPopulated(t *testing.T) {
 	if debt0.Freshness != FreshnessInsufficient {
 		t.Errorf("no records: freshness=%q, want insufficient", debt0.Freshness)
 	}
-	if debt0.GapDays != 13 {
-		t.Errorf("no records: gaps=%d, want 13", debt0.GapDays)
+	if debt0.GapDays != 14 {
+		t.Errorf("no records: gaps=%d, want 14", debt0.GapDays)
 	}
 
 	// 14 days of full data → complete

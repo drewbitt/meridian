@@ -9,11 +9,38 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// ConvertSleepRecords converts PocketBase records into engine SleepRecords and
-// SleepPeriods, merging overlapping records.
-// ConvertSleepRecords converts PocketBase records into engine SleepRecords and
-// SleepPeriods, merging overlapping records. Optional loc is the user's timezone
-// for nap detection (sleep starting after 10am local). Defaults to UTC.
+const (
+	maxSleepFragmentGap = 4 * time.Hour
+	napComparisonWindow = 20 * time.Hour
+)
+
+type mergedSleepPeriod struct {
+	start        time.Time
+	end          time.Time
+	deep         int
+	rem          int
+	light        int
+	awake        int
+	sleepMinutes int
+	measured     bool
+	explicitMain bool
+	explicitNap  bool
+	inferredNap  bool
+}
+
+type sleepEpisode struct {
+	indexes      []int
+	start        time.Time
+	end          time.Time
+	sleepMinutes int
+	explicitMain bool
+	inferredOnly bool
+}
+
+// ConvertSleepRecords converts PocketBase records into engine records and
+// periods, merging overlapping records and resolving ambiguous naps in the
+// context of the surrounding sleep episodes. Optional loc is the user's
+// timezone. It defaults to UTC.
 func ConvertSleepRecords(records []*core.Record, loc ...*time.Location) ([]engine.SleepRecord, []engine.SleepPeriod) {
 	userLoc := time.UTC
 	if len(loc) > 0 && loc[0] != nil {
@@ -23,43 +50,38 @@ func ConvertSleepRecords(records []*core.Record, loc ...*time.Location) ([]engin
 		return nil, nil
 	}
 
-	type rawPeriod struct {
-		start        time.Time
-		end          time.Time
-		deep         int
-		rem          int
-		light        int
-		awake        int
-		isNap        bool
-		sleepMinutes int
-		measured     bool
-	}
-
-	var raw []rawPeriod
-	for _, r := range records {
-		start := r.GetDateTime("sleep_start").Time()
-		end := r.GetDateTime("sleep_end").Time()
-		// Skip invalid records: zero times or end not after start.
+	var raw []mergedSleepPeriod
+	for _, record := range records {
+		start := record.GetDateTime("sleep_start").Time()
+		end := record.GetDateTime("sleep_end").Time()
 		if start.IsZero() || end.IsZero() || !end.After(start) {
 			continue
 		}
-		sleepMinutes := r.GetInt("duration_minutes")
+
+		sleepMinutes := record.GetInt("duration_minutes")
 		if sleepMinutes <= 0 {
-			sleepMinutes = r.GetInt("deep_minutes") + r.GetInt("rem_minutes") + r.GetInt("light_minutes")
+			sleepMinutes = record.GetInt("deep_minutes") +
+				record.GetInt("rem_minutes") +
+				record.GetInt("light_minutes")
 		}
 		if sleepMinutes <= 0 {
 			sleepMinutes = int(end.Sub(start).Minutes())
 		}
-		raw = append(raw, rawPeriod{
+
+		isNap := record.GetBool("is_nap")
+		napExplicit := record.GetBool("nap_explicit")
+		raw = append(raw, mergedSleepPeriod{
 			start:        start,
 			end:          end,
-			deep:         r.GetInt("deep_minutes"),
-			rem:          r.GetInt("rem_minutes"),
-			light:        r.GetInt("light_minutes"),
-			awake:        r.GetInt("awake_minutes"),
-			isNap:        r.GetBool("is_nap"),
+			deep:         record.GetInt("deep_minutes"),
+			rem:          record.GetInt("rem_minutes"),
+			light:        record.GetInt("light_minutes"),
+			awake:        record.GetInt("awake_minutes"),
 			sleepMinutes: sleepMinutes,
-			measured:     r.GetString("source") != ingest.SourceManual,
+			measured:     record.GetString("source") != ingest.SourceManual,
+			explicitMain: napExplicit && !isNap,
+			explicitNap:  napExplicit && isNap,
+			inferredNap:  !napExplicit && isNap,
 		})
 	}
 	if len(raw) == 0 {
@@ -70,53 +92,135 @@ func ConvertSleepRecords(records []*core.Record, loc ...*time.Location) ([]engin
 		return raw[i].start.Before(raw[j].start)
 	})
 
-	groups := []rawPeriod{raw[0]}
-
-	for _, p := range raw[1:] {
+	groups := []mergedSleepPeriod{raw[0]}
+	for _, period := range raw[1:] {
 		last := &groups[len(groups)-1]
-		if !p.start.After(last.end) {
-			touches := p.start.Equal(last.end)
-			if p.end.After(last.end) {
-				last.end = p.end
-			}
-			last.deep = max(last.deep, p.deep)
-			last.rem = max(last.rem, p.rem)
-			last.light = max(last.light, p.light)
-			last.awake = max(last.awake, p.awake)
-			last.isNap = last.isNap || p.isNap
-			// Prefer a tracker/importer's measured sleep duration over an
-			// overlapping manual time-in-bed span. Between equally measured
-			// sources, keep the larger value to avoid losing partial data.
-			if touches {
-				last.sleepMinutes += p.sleepMinutes
-				last.measured = last.measured || p.measured
-			} else if (p.measured && !last.measured) || p.measured == last.measured && p.sleepMinutes > last.sleepMinutes {
-				last.sleepMinutes = p.sleepMinutes
-				last.measured = p.measured
-			}
-		} else {
-			groups = append(groups, p)
+		if period.start.After(last.end) {
+			groups = append(groups, period)
+			continue
+		}
+
+		touches := period.start.Equal(last.end)
+		if period.end.After(last.end) {
+			last.end = period.end
+		}
+		last.deep = max(last.deep, period.deep)
+		last.rem = max(last.rem, period.rem)
+		last.light = max(last.light, period.light)
+		last.awake = max(last.awake, period.awake)
+		last.explicitMain = last.explicitMain || period.explicitMain
+		last.explicitNap = last.explicitNap || period.explicitNap
+		last.inferredNap = last.inferredNap || period.inferredNap
+
+		// Adjacent segments are distinct measured sleep. Overlapping sources
+		// describe the same interval, so prefer a measured duration over manual
+		// time-in-bed and otherwise keep the more complete value.
+		if touches {
+			last.sleepMinutes += period.sleepMinutes
+			last.measured = last.measured || period.measured
+		} else if (period.measured && !last.measured) ||
+			(period.measured == last.measured && period.sleepMinutes > last.sleepMinutes) {
+			last.sleepMinutes = period.sleepMinutes
+			last.measured = period.measured
 		}
 	}
 
+	napFlags := classifyNapGroups(groups, userLoc)
 	engineRecords := make([]engine.SleepRecord, len(groups))
 	periods := make([]engine.SleepPeriod, len(groups))
-	for i, g := range groups {
-		dur := g.end.Sub(g.start)
+	for i, group := range groups {
 		engineRecords[i] = engine.SleepRecord{
-			// The debt model groups records by the night they belong to, not
-			// the calendar date of the raw timestamp. This matters for common
-			// after-midnight bedtimes such as 1am or 2am.
-			Date:            ingest.SleepNightDate(g.start.In(userLoc)),
-			SleepStart:      g.start,
-			SleepEnd:        g.end,
-			DurationMinutes: g.sleepMinutes,
+			Date:            ingest.SleepNightDate(group.start.In(userLoc)),
+			SleepStart:      group.start,
+			SleepEnd:        group.end,
+			DurationMinutes: group.sleepMinutes,
+			IsNap:           napFlags[i],
 		}
-		// Auto-detect naps: sleep starting after 10am local time and shorter than 2 hours.
-		localStartHour := g.start.In(userLoc).Hour()
-		isNap := g.isNap || (localStartHour >= 10 && dur < 2*time.Hour)
-		periods[i] = engine.SleepPeriod{Start: g.start, End: g.end, IsNap: isNap}
+		periods[i] = engine.SleepPeriod{
+			Start: group.start,
+			End:   group.end,
+			IsNap: napFlags[i],
+		}
 	}
 
 	return engineRecords, periods
+}
+
+// classifyNapGroups preserves source-provided classifications and resolves
+// ambiguous imports in context. Fragments separated by up to four hours are
+// treated as one episode so an interrupted night is not split into a main
+// sleep and a false nap. Among separate ambiguous episodes in one waking
+// cycle, a clearly dominant episode is main sleep and the shorter episode is a
+// nap. A lone short nighttime sleep remains main sleep after an insomnia night.
+func classifyNapGroups(groups []mergedSleepPeriod, loc *time.Location) []bool {
+	isNap := make([]bool, len(groups))
+	var episodes []sleepEpisode
+
+	for i, group := range groups {
+		if group.explicitNap && !group.explicitMain {
+			isNap[i] = true
+			continue
+		}
+
+		canJoin := len(episodes) > 0 &&
+			!group.start.After(episodes[len(episodes)-1].end.Add(maxSleepFragmentGap))
+		if !canJoin {
+			episodes = append(episodes, sleepEpisode{
+				indexes:      []int{i},
+				start:        group.start,
+				end:          group.end,
+				sleepMinutes: group.sleepMinutes,
+				explicitMain: group.explicitMain,
+				inferredOnly: group.inferredNap,
+			})
+			continue
+		}
+
+		episode := &episodes[len(episodes)-1]
+		episode.indexes = append(episode.indexes, i)
+		if group.end.After(episode.end) {
+			episode.end = group.end
+		}
+		episode.sleepMinutes += group.sleepMinutes
+		episode.explicitMain = episode.explicitMain || group.explicitMain
+		episode.inferredOnly = episode.inferredOnly && group.inferredNap
+	}
+
+	for i, episode := range episodes {
+		if episode.explicitMain {
+			continue
+		}
+
+		dominantNeighbor := false
+		for j, other := range episodes {
+			if i == j || other.sleepMinutes < 4*60 ||
+				other.sleepMinutes < episode.sleepMinutes+30 {
+				continue
+			}
+
+			gap := other.start.Sub(episode.end)
+			if gap < 0 {
+				gap = episode.start.Sub(other.end)
+			}
+			if gap < 0 {
+				gap = 0
+			}
+			if gap <= napComparisonWindow {
+				dominantNeighbor = true
+				break
+			}
+		}
+
+		localMidpoint := episode.start.In(loc).Add(episode.end.Sub(episode.start) / 2)
+		hour := localMidpoint.Hour()
+		shortDaytimeSleep := episode.sleepMinutes < 3*60 && hour >= 10 && hour < 21
+		episodeIsNap := dominantNeighbor ||
+			shortDaytimeSleep ||
+			(episode.inferredOnly && episode.sleepMinutes < 3*60)
+		for _, idx := range episode.indexes {
+			isNap[idx] = episodeIsNap
+		}
+	}
+
+	return isNap
 }

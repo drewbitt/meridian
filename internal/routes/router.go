@@ -82,7 +82,7 @@ func Register(app *pocketbase.PocketBase) {
 			registerSleepRoutes(se, app)
 			registerSettingsRoutes(se, app)
 			registerHabitRoutes(se, app)
-			registerFitbitAuthRoutes(se, app)
+			registerGoogleHealthAuthRoutes(se, app)
 			registerAPIRoutes(se, app)
 			return se.Next()
 		},

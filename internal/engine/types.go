@@ -9,4 +9,5 @@ type SleepRecord struct {
 	SleepStart      time.Time
 	SleepEnd        time.Time
 	DurationMinutes int
+	IsNap           bool
 }

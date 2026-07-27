@@ -271,7 +271,8 @@ func TestCalculateSleepDebt_CumulativeAccumulation(t *testing.T) {
 	rec1 := []SleepRecord{{Date: ref, DurationMinutes: 360}}
 	debt1 := CalculateSleepDebt(rec1, 8.0, ref)
 
-	// 7 nights
+	// 7 nights. Five or more observations are enough to estimate missing
+	// nights from the user's median, so this represents the full 14-day window.
 	var rec7 []SleepRecord
 	for i := range 7 {
 		rec7 = append(rec7, SleepRecord{Date: ref.AddDate(0, 0, -i), DurationMinutes: 360})
@@ -290,8 +291,11 @@ func TestCalculateSleepDebt_CumulativeAccumulation(t *testing.T) {
 	if debt7.Hours <= debt1.Hours {
 		t.Errorf("7 nights (%.1f) should have more debt than 1 night (%.1f)", debt7.Hours, debt1.Hours)
 	}
-	if debt14.Hours <= debt7.Hours {
-		t.Errorf("14 nights (%.1f) should have more debt than 7 nights (%.1f)", debt14.Hours, debt7.Hours)
+	if debt14.Hours != debt7.Hours {
+		t.Errorf("uniform 7-night estimate (%.1f) should match 14 observed nights (%.1f)", debt7.Hours, debt14.Hours)
+	}
+	if !debt7.IsEstimate || debt7.EstimatedNights != 7 {
+		t.Errorf("7-night history should estimate 7 gaps, got estimate=%v nights=%d", debt7.IsEstimate, debt7.EstimatedNights)
 	}
 	// Cumulative ratio: 14 nights should have at least 2× the debt of 1 night
 	if debt14.Hours < 2*debt1.Hours {
@@ -303,10 +307,10 @@ func TestCalculateSleepDebt_LastNightMissing(t *testing.T) {
 	t.Parallel()
 	ref := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 
-	// All 13 completed nights have data (daysAgo 1-13), but daysAgo=1
-	// (last night) is missing.
+	// Thirteen sleep days have data, but daysAgo=0 (the sleep ending today)
+	// is missing.
 	var records []SleepRecord
-	for i := 2; i < 14; i++ { // skip daysAgo=0 (tonight) and daysAgo=1 (last night)
+	for i := 1; i < 14; i++ {
 		records = append(records, SleepRecord{
 			Date:            ref.AddDate(0, 0, -i),
 			DurationMinutes: 480,
@@ -314,15 +318,15 @@ func TestCalculateSleepDebt_LastNightMissing(t *testing.T) {
 	}
 	debt := CalculateSleepDebt(records, 8.0, ref)
 	if !debt.LastNightMissing {
-		t.Error("expected LastNightMissing=true when daysAgo=1 has no data")
+		t.Error("expected LastNightMissing=true when daysAgo=0 has no data")
 	}
 	if debt.Freshness != FreshnessRecent {
 		t.Errorf("expected FreshnessRecent, got %s", debt.Freshness)
 	}
 
-	// Now add last night's data (daysAgo=1) — LastNightMissing should become false.
+	// Now add the sleep ending today — LastNightMissing should become false.
 	records = append(records, SleepRecord{
-		Date:            ref.AddDate(0, 0, -1), // daysAgo=1
+		Date:            ref,
 		DurationMinutes: 480,
 	})
 	debt = CalculateSleepDebt(records, 8.0, ref)
@@ -333,8 +337,6 @@ func TestCalculateSleepDebt_LastNightMissing(t *testing.T) {
 		t.Errorf("expected FreshnessComplete, got %s", debt.Freshness)
 	}
 
-	// daysAgo=0 (tonight) missing should NOT affect freshness or LastNightMissing.
-	// It's normal to not have tonight's data during the day.
 	if debt.GapDays != 0 {
 		t.Errorf("expected 0 gap days when all completed nights have data, got %d", debt.GapDays)
 	}
@@ -343,8 +345,8 @@ func TestCalculateSleepDebt_LastNightMissing(t *testing.T) {
 func TestCalculateSleepDebt_ManualEntry4AM(t *testing.T) {
 	t.Parallel()
 	// Reproduces the exact user bug: entering 4am-8:18am sleep manually.
-	// With SleepNightDate, 4am March 30 → date March 29 (last night).
-	// Reference date is March 30 morning. daysAgo=1 = March 29 = has data.
+	// With SleepNightDate, 4am March 30 → date March 29, while the actual
+	// sleep end anchors this completed sleep to March 30.
 	// The dashboard should NOT show "data pending for last night."
 	est, err := time.LoadLocation("America/New_York")
 	if err != nil {
@@ -353,12 +355,13 @@ func TestCalculateSleepDebt_ManualEntry4AM(t *testing.T) {
 
 	ref := time.Date(2026, 3, 30, 9, 0, 0, 0, est) // 9am today
 
-	// 13 completed nights of data (daysAgo 1-13), each dated correctly.
+	// 14 completed sleep days, each with an end timestamp.
 	var records []SleepRecord
-	for i := 1; i <= 13; i++ {
+	for i := range 14 {
 		nightDate := time.Date(2026, 3, 30-i, 0, 0, 0, 0, est)
 		records = append(records, SleepRecord{
-			Date:            nightDate,
+			Date:            nightDate.AddDate(0, 0, -1),
+			SleepEnd:        nightDate.Add(8 * time.Hour),
 			DurationMinutes: 258, // 4h18m
 		})
 	}
@@ -369,7 +372,7 @@ func TestCalculateSleepDebt_ManualEntry4AM(t *testing.T) {
 	if debt.LastNightMissing {
 		t.Error("expected LastNightMissing=false — user entered last night's sleep")
 	}
-	// All 13 completed nights have data → FreshnessComplete.
+	// All 14 completed sleep days have data → FreshnessComplete.
 	if debt.Freshness != FreshnessComplete {
 		t.Errorf("expected FreshnessComplete, got %s (gaps=%d)", debt.Freshness, debt.GapDays)
 	}
@@ -378,4 +381,136 @@ func TestCalculateSleepDebt_ManualEntry4AM(t *testing.T) {
 	}
 	t.Logf("debt=%.1fh, freshness=%s, lastNightMissing=%v",
 		debt.Hours, debt.Freshness, debt.LastNightMissing)
+}
+
+func TestCalculateSleepDebt_NapRepaysInsteadOfCreatingDeficit(t *testing.T) {
+	t.Parallel()
+	ref := time.Date(2026, 7, 27, 18, 0, 0, 0, time.UTC)
+	main := SleepRecord{
+		SleepEnd:        time.Date(2026, 7, 27, 7, 0, 0, 0, time.UTC),
+		DurationMinutes: 360,
+	}
+	nap := SleepRecord{
+		SleepEnd:        time.Date(2026, 7, 27, 14, 20, 0, 0, time.UTC),
+		DurationMinutes: 20,
+		IsNap:           true,
+	}
+
+	withoutNap := CalculateSleepDebt([]SleepRecord{main}, 8, ref)
+	withNap := CalculateSleepDebt([]SleepRecord{main, nap}, 8, ref)
+	if withNap.Hours >= withoutNap.Hours {
+		t.Fatalf("nap increased debt: without=%.1f with=%.1f", withoutNap.Hours, withNap.Hours)
+	}
+	if withNap.Hours != 1.7 {
+		t.Errorf("6h main sleep plus 20m nap: got %.1fh, want 1.7h", withNap.Hours)
+	}
+	if withNap.NapCreditHours != 0.3 {
+		t.Errorf("nap credit: got %.1fh, want 0.3h", withNap.NapCreditHours)
+	}
+}
+
+func TestCalculateSleepDebt_ExtraMainSleepRepaysDebt(t *testing.T) {
+	t.Parallel()
+	ref := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	records := []SleepRecord{
+		{Date: ref, DurationMinutes: 600},                   // 2h recovery credit
+		{Date: ref.AddDate(0, 0, -1), DurationMinutes: 360}, // 2h shortfall × 0.85
+	}
+	debt := CalculateSleepDebt(records, 8, ref)
+	if debt.Hours != 0 {
+		t.Errorf("10h recovery night should repay prior 6h night, got %.1fh", debt.Hours)
+	}
+}
+
+func TestCalculateSleepDebt_NapOnlyDoesNotCreateNightlyNeed(t *testing.T) {
+	t.Parallel()
+	ref := time.Date(2026, 7, 27, 18, 0, 0, 0, time.UTC)
+	debt := CalculateSleepDebt([]SleepRecord{{
+		SleepEnd:        ref.Add(-4 * time.Hour),
+		DurationMinutes: 45,
+		IsNap:           true,
+	}}, 8, ref)
+
+	if debt.Hours != 0 {
+		t.Errorf("nap-only history created %.1fh debt", debt.Hours)
+	}
+	if debt.ObservedNights != 0 || debt.Freshness != FreshnessInsufficient {
+		t.Errorf("nap counted as a main night: observed=%d freshness=%s", debt.ObservedNights, debt.Freshness)
+	}
+}
+
+func TestCalculateSleepDebt_BrokenMainSleepFragmentsAreSummed(t *testing.T) {
+	t.Parallel()
+	ref := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	records := []SleepRecord{
+		{SleepEnd: time.Date(2026, 7, 27, 3, 0, 0, 0, time.UTC), DurationMinutes: 240},
+		{SleepEnd: time.Date(2026, 7, 27, 7, 0, 0, 0, time.UTC), DurationMinutes: 180},
+	}
+	debt := CalculateSleepDebt(records, 8, ref)
+	if debt.Hours != 1 {
+		t.Errorf("4h + 3h broken sleep should have 1h deficit, got %.1fh", debt.Hours)
+	}
+	if debt.ObservedNights != 1 {
+		t.Errorf("broken sleep counted as %d nights, want 1", debt.ObservedNights)
+	}
+}
+
+func TestCalculateSleepDebt_MissingDaysUseMedianAfterSevenStableNights(t *testing.T) {
+	t.Parallel()
+	ref := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	var records []SleepRecord
+	for i := range 14 {
+		records = append(records, SleepRecord{
+			Date:            ref.AddDate(0, 0, -i),
+			DurationMinutes: 360,
+		})
+	}
+	baseline := CalculateSleepDebt(records, 8, ref)
+	withGap := CalculateSleepDebt(records[4:], 8, ref)
+
+	if withGap.Hours != baseline.Hours {
+		t.Errorf("four-day sync gap changed stable debt: baseline=%.1f gap=%.1f", baseline.Hours, withGap.Hours)
+	}
+	if !withGap.IsEstimate || withGap.EstimatedNights != 4 {
+		t.Errorf("gap metadata: estimate=%v estimated=%d", withGap.IsEstimate, withGap.EstimatedNights)
+	}
+}
+
+func TestCalculateSleepDebt_SixNightsRemainObservedLowerBound(t *testing.T) {
+	t.Parallel()
+	ref := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	var records []SleepRecord
+	for i := range 6 {
+		records = append(records, SleepRecord{
+			Date:            ref.AddDate(0, 0, -i),
+			DurationMinutes: 360,
+		})
+	}
+	debt := CalculateSleepDebt(records, 8, ref)
+	if debt.IsEstimate || debt.EstimatedNights != 0 {
+		t.Error("six nights should not be extrapolated")
+	}
+	if !debt.IsLowerBound {
+		t.Error("six-night result with gaps should be labeled a lower bound")
+	}
+	if debt.Freshness != FreshnessInsufficient || debt.ObservedNights != 6 {
+		t.Errorf("quality metadata: freshness=%s observed=%d", debt.Freshness, debt.ObservedNights)
+	}
+}
+
+func TestCalculateSleepDebt_IrregularHistoryWithLargeGapStaysLowerBound(t *testing.T) {
+	t.Parallel()
+	ref := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	durations := []int{240, 660, 300, 600, 360, 540, 420}
+	var records []SleepRecord
+	for i, duration := range durations {
+		records = append(records, SleepRecord{
+			Date:            ref.AddDate(0, 0, -(i + 7)),
+			DurationMinutes: duration,
+		})
+	}
+	debt := CalculateSleepDebt(records, 8, ref)
+	if debt.IsEstimate || !debt.IsLowerBound {
+		t.Errorf("irregular seven-night history: estimate=%v lowerBound=%v", debt.IsEstimate, debt.IsLowerBound)
+	}
 }

@@ -104,6 +104,70 @@ func TestDetermineMorningWake_MultipleSleeps_SelectsLongest(t *testing.T) {
 	}
 }
 
+func TestDetermineMorningWake_BrokenNightUsesFinalWake(t *testing.T) {
+	t.Parallel()
+	loc := time.UTC
+	now := time.Date(2026, 7, 27, 10, 0, 0, 0, loc)
+	periods := []engine.SleepPeriod{
+		{Start: time.Date(2026, 7, 26, 23, 0, 0, 0, loc), End: time.Date(2026, 7, 27, 3, 0, 0, 0, loc)},
+		{Start: time.Date(2026, 7, 27, 4, 0, 0, 0, loc), End: time.Date(2026, 7, 27, 7, 0, 0, 0, loc)},
+	}
+	wake := DetermineMorningWake(periods, now, loc)
+	want := time.Date(2026, 7, 27, 7, 0, 0, 0, loc)
+	if !wake.Equal(want) {
+		t.Errorf("broken night anchored to %v, want final wake %v", wake, want)
+	}
+}
+
+func TestDetermineMorningWake_DaySleeper(t *testing.T) {
+	t.Parallel()
+	loc := time.UTC
+	now := time.Date(2026, 7, 27, 22, 0, 0, 0, loc)
+	periods := []engine.SleepPeriod{{
+		Start: time.Date(2026, 7, 27, 9, 0, 0, 0, loc),
+		End:   time.Date(2026, 7, 27, 17, 0, 0, 0, loc),
+	}}
+	wake := DetermineMorningWake(periods, now, loc)
+	want := time.Date(2026, 7, 27, 17, 0, 0, 0, loc)
+	if !wake.Equal(want) {
+		t.Errorf("day sleep anchored to %v, want %v", wake, want)
+	}
+}
+
+func TestPredictionSleepPeriodsDropsOldHistoryButKeepsBrokenEpisode(t *testing.T) {
+	t.Parallel()
+	loc := time.UTC
+	old := engine.SleepPeriod{
+		Start: time.Date(2026, 7, 20, 23, 0, 0, 0, loc),
+		End:   time.Date(2026, 7, 21, 7, 0, 0, 0, loc),
+	}
+	first := engine.SleepPeriod{
+		Start: time.Date(2026, 7, 26, 23, 0, 0, 0, loc),
+		End:   time.Date(2026, 7, 27, 3, 0, 0, 0, loc),
+	}
+	second := engine.SleepPeriod{
+		Start: time.Date(2026, 7, 27, 4, 0, 0, 0, loc),
+		End:   time.Date(2026, 7, 27, 7, 0, 0, 0, loc),
+	}
+	nap := engine.SleepPeriod{
+		Start: time.Date(2026, 7, 27, 14, 0, 0, 0, loc),
+		End:   time.Date(2026, 7, 27, 14, 20, 0, 0, loc),
+		IsNap: true,
+	}
+	got := predictionSleepPeriods(
+		[]engine.SleepPeriod{old, first, second, nap},
+		second.End,
+	)
+	if len(got) != 3 {
+		t.Fatalf("prediction periods=%d, want current fragments plus nap (3)", len(got))
+	}
+	for _, period := range got {
+		if period.Start.Equal(old.Start) {
+			t.Error("old sleep history leaked into today's homeostatic simulation")
+		}
+	}
+}
+
 func TestDetermineMorningWake_NapDoesNotShiftWake(t *testing.T) {
 	t.Parallel()
 	loc := time.UTC
@@ -128,6 +192,24 @@ func TestDetermineMorningWake_NoSleepData_Fallback(t *testing.T) {
 	want := time.Date(2024, 1, 16, 7, 0, 0, 0, loc)
 	if !wake.Equal(want) {
 		t.Errorf("got %v, want %v (fallback 7am)", wake, want)
+	}
+}
+
+func TestDetermineMorningWake_DoesNotReuseYesterdayAfterTwentyHours(t *testing.T) {
+	t.Parallel()
+	loc := time.UTC
+	now := time.Date(2026, 7, 27, 8, 0, 0, 0, loc)
+	periods := []engine.SleepPeriod{{
+		Start: time.Date(2026, 7, 26, 0, 0, 0, 0, loc),
+		End:   time.Date(2026, 7, 26, 7, 0, 0, 0, loc),
+	}}
+	wake, found := determineRecentMainSleep(periods, now, loc)
+	if found {
+		t.Fatalf("stale wake was reused: %v", wake)
+	}
+	want := time.Date(2026, 7, 27, 7, 0, 0, 0, loc)
+	if !wake.Equal(want) {
+		t.Errorf("fallback=%v, want %v", wake, want)
 	}
 }
 
@@ -231,6 +313,32 @@ func TestHabitualSleepMidpoint_ConsistentMidpoint(t *testing.T) {
 	// Midpoint of 11pm-7am = 3am = 3.0h.
 	if math.Abs(mid-3.0) > 0.5 {
 		t.Errorf("expected midpoint ~3.0, got %.2f", mid)
+	}
+}
+
+func TestHabitualSleepMidpoint_BrokenNightsCountOnce(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	var periods []engine.SleepPeriod
+	for i := 1; i <= 5; i++ {
+		day := now.AddDate(0, 0, -i)
+		periods = append(periods,
+			engine.SleepPeriod{
+				Start: time.Date(day.Year(), day.Month(), day.Day()-1, 23, 0, 0, 0, time.UTC),
+				End:   time.Date(day.Year(), day.Month(), day.Day(), 3, 0, 0, 0, time.UTC),
+			},
+			engine.SleepPeriod{
+				Start: time.Date(day.Year(), day.Month(), day.Day(), 4, 0, 0, 0, time.UTC),
+				End:   time.Date(day.Year(), day.Month(), day.Day(), 7, 0, 0, 0, time.UTC),
+			},
+		)
+	}
+	mid, ok := habitualSleepMidpoint(periods, now, time.UTC)
+	if !ok {
+		t.Fatal("five broken nights should provide five episode midpoints")
+	}
+	if math.Abs(mid-3) > 0.5 {
+		t.Errorf("broken-night midpoint=%.2f, want about 3:00", mid)
 	}
 }
 
@@ -530,7 +638,8 @@ func TestNapDetection_EarlyMorningSleep_NotNap(t *testing.T) {
 
 func TestNapDetection_LongAfternoonSleep_NotNap(t *testing.T) {
 	c := newSleepCollection()
-	// 3-hour afternoon sleep should NOT be a nap (>= 2 hours).
+	// A 3-hour isolated sleep is treated as main sleep rather than silently
+	// assuming it was a very long nap.
 	rec := core.NewRecord(c)
 	rec.Set("date", "2024-01-16 13:00:00")
 	rec.Set("sleep_start", "2024-01-16 13:00:00")
@@ -542,13 +651,13 @@ func TestNapDetection_LongAfternoonSleep_NotNap(t *testing.T) {
 		t.Fatalf("expected 1 period, got %d", len(periods))
 	}
 	if periods[0].IsNap {
-		t.Error("3h afternoon sleep should NOT be a nap (>= 2h)")
+		t.Error("3h afternoon sleep should not be inferred as a nap")
 	}
 }
 
-func TestNapDetection_ExactBoundary_10am_2h(t *testing.T) {
+func TestNapDetection_TwoHourDaytimeSleep_IsNap(t *testing.T) {
 	c := newSleepCollection()
-	// Exactly at 10am, exactly 2 hours → NOT a nap (duration is not < 2h).
+	// Two-hour daytime sleeps are still commonly naps.
 	rec := core.NewRecord(c)
 	rec.Set("date", "2024-01-16 10:00:00")
 	rec.Set("sleep_start", "2024-01-16 10:00:00")
@@ -559,8 +668,8 @@ func TestNapDetection_ExactBoundary_10am_2h(t *testing.T) {
 	if len(periods) != 1 {
 		t.Fatalf("expected 1 period, got %d", len(periods))
 	}
-	if periods[0].IsNap {
-		t.Error("exactly 2h at 10am should NOT be a nap (duration is not < 2h)")
+	if !periods[0].IsNap {
+		t.Error("2h at 10am should be inferred as a nap")
 	}
 }
 

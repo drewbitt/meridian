@@ -2,16 +2,21 @@ package services
 
 import (
 	"net/http"
-	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/drewbitt/meridian/internal/engine"
 	"github.com/drewbitt/meridian/internal/ingest"
 	"github.com/drewbitt/meridian/internal/schema"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 )
+
+type notificationRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn notificationRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func TestComputeUserSchedule_NoSleepDataHasNoForecast(t *testing.T) {
 	app, err := tests.NewTestApp()
@@ -37,8 +42,8 @@ func TestComputeUserSchedule_NoSleepDataHasNoForecast(t *testing.T) {
 	if schedule.MorningWake.IsZero() {
 		t.Error("expected fallback wake time for scheduler deduplication")
 	}
-	if debt.GapDays != 13 {
-		t.Errorf("gap days: got %d, want 13", debt.GapDays)
+	if debt.GapDays != 14 {
+		t.Errorf("gap days: got %d, want 14", debt.GapDays)
 	}
 }
 
@@ -96,15 +101,18 @@ func TestUpsertSleepRecord_IsIdempotentAndPreservesDistinctImports(t *testing.T)
 }
 
 func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T) {
-	var mu sync.Mutex
 	var titles []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
+	previousClient := httpClient
+	httpClient = &http.Client{Transport: notificationRoundTripFunc(func(r *http.Request) (*http.Response, error) {
 		titles = append(titles, r.Header.Get("Title"))
-		mu.Unlock()
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    r,
+		}, nil
+	})}
+	t.Cleanup(func() { httpClient = previousClient })
 
 	app, err := tests.NewTestApp()
 	if err != nil {
@@ -127,10 +135,23 @@ func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T)
 	settings.Set("user", user.Id)
 	settings.Set("sleep_need_hours", 8)
 	settings.Set("notifications_enabled", true)
-	settings.Set("ntfy_server", srv.URL)
+	settings.Set("ntfy_server", "https://ntfy.invalid")
 	settings.Set("ntfy_topic", "test-topic")
 	settings.Set("timezone", "UTC")
 	if err := app.Save(settings); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	wake := now.Add(-30 * time.Minute)
+	if _, err := UpsertSleepRecord(app, user.Id, ingest.SleepRecord{
+		Date:            ingest.SleepNightDate(wake.Add(-8 * time.Hour)),
+		SleepStart:      wake.Add(-8 * time.Hour),
+		SleepEnd:        wake,
+		DurationMinutes: 480,
+		Source:          ingest.SourceManual,
+		NapExplicit:     true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -154,8 +175,6 @@ func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T)
 		t.Fatalf("second morning job: %v", err)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
 	greetings := 0
 	for _, title := range titles {
 		if title == "Good morning!" {
@@ -171,5 +190,37 @@ func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T)
 	}
 	if count != 1 {
 		t.Errorf("schedule rows: got %d, want 1", count)
+	}
+}
+
+func TestScheduleSummaryNotification_DelayedTrackerLifecycle(t *testing.T) {
+	t.Parallel()
+	loc := time.UTC
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, loc)
+
+	if _, ok := scheduleSummaryNotification(engine.Schedule{}, now, loc); ok {
+		t.Error("missing completed sleep should not consume the daily summary")
+	}
+
+	current := engine.Schedule{
+		Points:      []engine.EnergyPoint{{Time: now}},
+		MorningWake: now.Add(-2 * time.Hour),
+	}
+	title, ok := scheduleSummaryNotification(current, now, loc)
+	if !ok || title != "Good morning!" {
+		t.Errorf("recent upload: title=%q ready=%v", title, ok)
+	}
+
+	delayed := current
+	delayed.MorningWake = now.Add(-6 * time.Hour)
+	title, ok = scheduleSummaryNotification(delayed, now, loc)
+	if !ok || title != "Today's sleep synced" {
+		t.Errorf("delayed upload: title=%q ready=%v", title, ok)
+	}
+
+	yesterday := current
+	yesterday.MorningWake = now.Add(-18 * time.Hour)
+	if _, ok := scheduleSummaryNotification(yesterday, now, loc); ok {
+		t.Error("previous-date wake should not generate a new-day summary")
 	}
 }

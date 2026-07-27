@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/drewbitt/meridian/internal/services"
@@ -24,9 +25,21 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		welcome := q.Get("welcome") == "1"
 		importedCount := q.Get("imported")
 		importError := q.Get("import_error")
-		fitbitError := q.Get("fitbit_error")
-		fitbitStatus := q.Get("fitbit") // "connected", "disconnected", "synced"
-		return render(re, templates.Settings(settings, saved, welcome, importedCount, importError, fitbitError, fitbitStatus))
+		healthError := q.Get("health_error")
+		healthStatus := q.Get("health") // "connected", "disconnected", "synced", "pending"
+		return render(
+			re,
+			templates.Settings(
+				settings,
+				saved,
+				welcome,
+				importedCount,
+				importError,
+				healthError,
+				healthStatus,
+				services.GoogleHealthCredentialsManaged(),
+			),
+		)
 	})
 
 	se.Router.POST("/settings", func(re *core.RequestEvent) error {
@@ -54,7 +67,7 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 			settings.Set("sleep_need_hours", v)
 		}
 		if v := form.Get("chronotype_shift"); v != "" {
-			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= -3 && f <= 3 {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= -2 && f <= 2 {
 				settings.Set("chronotype_shift", f)
 			}
 		} else {
@@ -65,7 +78,13 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 			settings.Set("ntfy_server", v)
 		}
 		settings.Set("ntfy_access_token", form.Get("ntfy_access_token"))
-		settings.Set("site_url", form.Get("site_url"))
+		siteURL := strings.TrimSpace(form.Get("site_url"))
+		if siteURL != "" {
+			if _, ok := services.GoogleHealthRedirectURL(siteURL); !ok {
+				return re.Redirect(http.StatusSeeOther, "/settings?health_error=invalid_site_url")
+			}
+		}
+		settings.Set("site_url", siteURL)
 		if tz := form.Get("timezone"); tz != "" {
 			if _, err := time.LoadLocation(tz); err == nil {
 				settings.Set("timezone", tz)
@@ -76,11 +95,11 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		} else {
 			settings.Set("timezone", "")
 		}
-		if v := form.Get("fitbit_client_id"); v != "" {
-			settings.Set("fitbit_client_id", v)
+		if v := form.Get("google_health_client_id"); v != "" {
+			settings.Set("google_health_client_id", v)
 		}
-		if v := form.Get("fitbit_client_secret"); v != "" {
-			settings.Set("fitbit_client_secret", v)
+		if v := form.Get("google_health_client_secret"); v != "" {
+			settings.Set("google_health_client_secret", v)
 		}
 		settings.Set("notifications_enabled", form.Get("notifications_enabled") == "on")
 		settings.Set("location_name", form.Get("location_name"))

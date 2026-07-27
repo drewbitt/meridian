@@ -102,9 +102,10 @@ func DayLengthHours(lat, lng float64, date time.Time) float64 {
 	return solar.DayLength.Hours()
 }
 
-// SeasonalCAcrophaseShift returns an adjustment to CAcrophase based on
-// seasonal day length variation. In summer (long days), circadian phase
-// shifts later; in winter (short days), it shifts earlier.
+// SeasonalCAcrophaseShift returns an experimental population-level adjustment
+// based on seasonal day length. It is intentionally not applied to individual
+// forecasts: geographic photoperiod is not a measurement of retinal light
+// exposure and can move an indoor or shift worker's prediction the wrong way.
 //
 // Based on the photoperiodic effect on human circadian timing:
 // - Wehr et al. (2001): DLMO shifts ~1h between summer and winter

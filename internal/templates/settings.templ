@@ -7,7 +7,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-templ Settings(settings *core.Record, saved bool, welcome bool, importedCount string, importError string, fitbitError string, fitbitStatus string) {
+templ Settings(settings *core.Record, saved bool, welcome bool, importedCount string, importError string, healthError string, healthStatus string, healthCredentialsManaged bool) {
 	@Layout("Settings") {
 		<div class="mx-auto max-w-lg space-y-6">
 			if welcome {
@@ -21,14 +21,14 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 					Settings saved
 				</div>
 			}
-			if fitbitStatus == "connected" {
-				<div id="toast-fitbit" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
-					Fitbit connected — syncing last 30 days
+			if healthStatus == "connected" {
+				<div id="toast-health" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Google Health connected — syncing last 30 days
 				</div>
 			}
-			if fitbitStatus == "disconnected" {
-				<div id="toast-fitbit-disc" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
-					Fitbit disconnected
+			if healthStatus == "disconnected" {
+				<div id="toast-health-disc" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Google Health disconnected
 				</div>
 			}
 			if importedCount != "" {
@@ -41,19 +41,44 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 					{ importError }
 				</div>
 			}
-			if fitbitStatus == "synced" {
-				<div id="toast-fitbit-sync" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
-					Fitbit sync complete
+			if healthStatus == "synced" {
+				<div id="toast-health-sync" class="fixed bottom-6 right-6 rounded-lg bg-noon/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Google Health sync complete
 				</div>
 			}
-			if fitbitError == "not_configured" {
-				<div id="toast-fitbit-error" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
-					Enter your Fitbit Client ID and Secret below, then save before connecting.
+			if healthStatus == "pending" {
+				<div id="toast-health-pending" class="fixed bottom-6 right-6 max-w-sm rounded-lg bg-amber-500/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Google Health is still processing today's sleep. Meridian will check again automatically.
 				</div>
 			}
-			if fitbitError == "sync_failed" {
-				<div id="toast-fitbit-sync-err" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
-					Fitbit sync failed — check your connection.
+			if healthError == "not_configured" {
+				<div id="toast-health-error" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Check the Google OAuth credentials and Site URL below, then save before connecting.
+				</div>
+			}
+			if healthError == "invalid_site_url" {
+				<div id="toast-site-url-error" class="fixed bottom-6 right-6 max-w-sm rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Use HTTP only for localhost or a loopback IP. Deployed Site URLs must be an HTTPS origin with no path.
+				</div>
+			}
+			if healthError == "authorization_denied" {
+				<div id="toast-health-denied" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Google Health access was not granted.
+				</div>
+			}
+			if healthError == "token_exchange" || healthError == "missing_refresh_token" {
+				<div id="toast-health-auth-error" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Google Health could not finish connecting. Try Connect again.
+				</div>
+			}
+			if healthError == "insufficient_scope" {
+				<div id="toast-health-scope-error" class="fixed bottom-6 right-6 max-w-sm rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Google did not grant read-only sleep access. Add the scope in Google Auth Platform, then connect again.
+				</div>
+			}
+			if healthError == "sync_failed" {
+				<div id="toast-health-sync-err" class="fixed bottom-6 right-6 rounded-lg bg-dawn/90 px-4 py-2 text-sm font-medium text-night-deep shadow-lg animate-fade-out">
+					Google Health sync failed — reconnect if the problem continues.
 				</div>
 			}
 
@@ -85,12 +110,12 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 							id="chronotype_shift"
 							name="chronotype_shift"
 							step="0.5"
-							min="-3"
-							max="3"
+							min="-2"
+							max="2"
 							value={ chronotypeShiftValue(settings) }
 							class="input-field"
 						/>
-						<p class="mt-1 text-xs text-gray-400">Manual override for circadian phase. 0 = auto-detect from sleep patterns. Negative = early bird, positive = night owl.</p>
+						<p class="mt-1 text-xs text-gray-400">Manual override for circadian phase (limited to ±2 hours). 0 = auto-detect from sleep patterns.</p>
 					</div>
 
 					<div>
@@ -153,7 +178,7 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 							value={ getSettingStr(settings, "site_url") }
 							class="input-field"
 						/>
-						<p class="mt-1 text-xs text-gray-400">Used for Fitbit OAuth callback, notification links, and redirect URLs</p>
+						<p class="mt-1 text-xs text-gray-400">Used for Google Health OAuth, notification links, and redirects. HTTP works only on localhost or loopback IPs. Public deployments need an HTTPS origin; your reverse proxy may still use HTTP to Meridian internally.</p>
 					</div>
 
 					<div>
@@ -201,7 +226,7 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 								Using approximate location from timezone. Search your city for better accuracy.
 							</p>
 						}
-						<p class="mt-1 text-xs text-gray-400">Used for sunrise/sunset timing and seasonal circadian adjustment.</p>
+						<p class="mt-1 text-xs text-gray-400">Used for sunrise and sunset planning cues. Meridian does not treat outdoor day length as your measured light exposure.</p>
 						<input type="hidden" id="latitude" name="latitude" value={ getSettingStr(settings, "latitude") }/>
 						<input type="hidden" id="longitude" name="longitude" value={ getSettingStr(settings, "longitude") }/>
 					</div>
@@ -221,40 +246,51 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 						<p class="mt-1 text-xs text-gray-400">IANA timezone. Auto-detected from browser if empty, or set by location search above.</p>
 					</div>
 
-					<div>
-						<label for="fitbit_client_id" class="block text-sm font-medium text-gray-400 mb-1.5">
-							Fitbit Client ID
-						</label>
-						<input
-							type="text"
-							id="fitbit_client_id"
-							name="fitbit_client_id"
-							placeholder="Fitbit OAuth client ID"
-							value={ getSettingStr(settings, "fitbit_client_id") }
-							class="input-field"
-						/>
-					</div>
+					if healthCredentialsManaged {
+						<div class="rounded-lg border border-night-border bg-night-deep px-3 py-2.5">
+							<div class="text-sm font-medium text-gray-300">Google OAuth client configured</div>
+							<p class="mt-1 text-xs text-gray-400">This Meridian installation supplies its OAuth client through environment variables.</p>
+						</div>
+					} else {
+						<div>
+							<label for="google_health_client_id" class="block text-sm font-medium text-gray-400 mb-1.5">
+								Google OAuth Client ID
+							</label>
+							<input
+								type="text"
+								id="google_health_client_id"
+								name="google_health_client_id"
+								placeholder="Google OAuth client ID"
+								value={ getSettingStr(settings, "google_health_client_id") }
+								class="input-field"
+							/>
+						</div>
 
-					<div>
-						<label for="fitbit_client_secret" class="block text-sm font-medium text-gray-400 mb-1.5">
-							Fitbit Client Secret
-						</label>
-						<input
-							type="password"
-							id="fitbit_client_secret"
-							name="fitbit_client_secret"
-							placeholder="Fitbit OAuth client secret"
-							value={ getSettingStr(settings, "fitbit_client_secret") }
-							class="input-field"
-						/>
-						<p class="mt-1 text-xs text-gray-400">
-							Create a Fitbit app at
-							<a href="https://dev.fitbit.com/apps/new" target="_blank" class="text-dusk hover:text-dawn underline underline-offset-2 transition-colors">dev.fitbit.com/apps/new</a>.
-							Set OAuth 2.0 Application Type to <strong class="text-gray-300">Personal</strong>,
-							Callback URL to <code class="text-gray-300 font-mono">{ callbackURL(settings) }</code>,
-							and Default Access Type to <strong class="text-gray-300">Read-Only</strong>.
-							Other URL fields can be placeholders for Personal apps.
-						</p>
+						<div>
+							<label for="google_health_client_secret" class="block text-sm font-medium text-gray-400 mb-1.5">
+								Google OAuth Client Secret
+							</label>
+							<input
+								type="password"
+								id="google_health_client_secret"
+								name="google_health_client_secret"
+								placeholder={ googleHealthSecretPlaceholder(settings) }
+								class="input-field"
+							/>
+						</div>
+					}
+					<div class="rounded-lg border border-night-border bg-night-deep px-3 py-2.5 text-xs text-gray-400">
+						<div class="font-medium text-gray-300">Google Health OAuth setup</div>
+						<ol class="mt-2 list-decimal space-y-1 pl-4">
+							<li>
+								<a href="https://developers.google.com/health/setup" target="_blank" rel="noreferrer" class="text-dusk hover:text-dawn underline underline-offset-2 transition-colors">Enable Google Health API</a>
+								in your Google Cloud project.
+							</li>
+							<li>Add only <code class="text-gray-300 font-mono">googlehealth.sleep.readonly</code> under Google Auth Platform → Data Access.</li>
+							<li>Create a <strong class="text-gray-300">Web application</strong> OAuth client and authorize this exact redirect URI:</li>
+						</ol>
+						<code class="mt-2 block break-all rounded bg-night px-2 py-1.5 text-gray-300 font-mono">{ googleHealthCallbackURL(settings) }</code>
+						<p class="mt-2">Testing mode requires your Google account as a test user and its refresh token expires after 7 days. Publish the unverified app for durable personal use; it remains capped at 100 users until verification.</p>
 					</div>
 
 					<div class="flex items-center gap-3">
@@ -284,18 +320,18 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 				<div class="space-y-4">
 					<div class="flex items-center justify-between">
 						<div>
-							<div class="text-sm font-medium text-gray-300">Fitbit</div>
-							<div class="text-xs text-gray-400">Auto-sync sleep data via OAuth</div>
+							<div class="text-sm font-medium text-gray-300">Google Health</div>
+							<div class="text-xs text-gray-400">Auto-sync Fitbit and Pixel Watch sleep</div>
 						</div>
-						if hasFitbitToken(settings) {
+						if hasGoogleHealthToken(settings) {
 							<div class="flex items-center gap-2">
 								<span class="text-xs font-mono font-medium text-noon bg-noon-muted px-2 py-1 rounded-md">Connected</span>
-								<form method="POST" action="/auth/fitbit/sync" class="inline">
+								<form method="POST" action="/auth/google-health/sync" class="inline">
 									<button type="submit" class="text-xs text-dusk hover:text-dawn transition-colors">
 										Sync Now
 									</button>
 								</form>
-								<form method="POST" action="/auth/fitbit/disconnect" class="inline">
+								<form method="POST" action="/auth/google-health/disconnect" class="inline">
 									<button type="submit" class="text-xs text-gray-500 hover:text-dawn transition-colors">
 										Disconnect
 									</button>
@@ -303,15 +339,15 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 							</div>
 						} else {
 							<a
-								href="/auth/fitbit"
+								href="/auth/google-health"
 								class="btn-secondary"
 							>
 								Connect
 							</a>
 						}
 					</div>
-					if hasFitbitLastSync(settings) {
-						if hasFitbitToken(settings) {
+					if hasGoogleHealthLastSync(settings) {
+						if hasGoogleHealthToken(settings) {
 							<div class="text-xs text-gray-400 -mt-2">
 								Last synced { formatLastSyncRelative(settings) }
 								if formatLastSyncAbsolute(settings) != "" {
@@ -323,6 +359,11 @@ templ Settings(settings *core.Record, saved bool, welcome bool, importedCount st
 								Disconnected — last synced { formatLastSyncRelative(settings) }. Reconnect to resume auto-sync.
 							</div>
 						}
+					}
+					if hasGoogleHealthToken(settings) && settings.GetBool("google_health_sleep_pending") {
+						<div class="text-xs text-amber-500 -mt-2">
+							Google Health was still processing today's sleep when Meridian checked { formatGoogleHealthAttemptRelative(settings) }. Auto-sync will retry.
+						</div>
 					}
 
 					<div class="border-t border-night-border pt-4">
@@ -508,22 +549,37 @@ func getSettingBool(settings *core.Record, key string) bool {
 	return settings.GetBool(key)
 }
 
-func hasFitbitToken(settings *core.Record) bool {
+func hasGoogleHealthToken(settings *core.Record) bool {
 	if settings == nil {
 		return false
 	}
-	return settings.GetString("fitbit_access_token") != ""
+	return settings.GetString("google_health_access_token") != ""
 }
 
-func hasFitbitLastSync(settings *core.Record) bool {
+func hasGoogleHealthLastSync(settings *core.Record) bool {
 	if settings == nil {
 		return false
 	}
-	return !settings.GetDateTime("fitbit_last_sync").Time().IsZero()
+	return !settings.GetDateTime("google_health_last_sync").Time().IsZero()
 }
 
 func formatLastSyncRelative(settings *core.Record) string {
-	t := settings.GetDateTime("fitbit_last_sync").Time()
+	t := settings.GetDateTime("google_health_last_sync").Time()
+	return formatRelativeTime(t)
+}
+
+func formatGoogleHealthAttemptRelative(settings *core.Record) string {
+	t := settings.GetDateTime("google_health_last_attempt").Time()
+	if t.IsZero() {
+		t = settings.GetDateTime("google_health_last_sync").Time()
+	}
+	return formatRelativeTime(t)
+}
+
+func formatRelativeTime(t time.Time) string {
+	if t.IsZero() {
+		return "recently"
+	}
 	elapsed := time.Since(t)
 	switch {
 	case elapsed < time.Minute:
@@ -552,7 +608,7 @@ func formatLastSyncRelative(settings *core.Record) string {
 // formatLastSyncAbsolute returns an RFC3339 UTC string for the <local-time>
 // element when the sync was more than 24h ago. Returns "" for recent syncs.
 func formatLastSyncAbsolute(settings *core.Record) string {
-	t := settings.GetDateTime("fitbit_last_sync").Time()
+	t := settings.GetDateTime("google_health_last_sync").Time()
 	if time.Since(t) < 24*time.Hour {
 		return ""
 	}
@@ -581,12 +637,19 @@ func formatLocation(settings *core.Record) string {
 	return fmt.Sprintf("%.2f\u00b0%s, %.2f\u00b0%s", lat, ns, lng, ew)
 }
 
-func callbackURL(settings *core.Record) string {
+func googleHealthCallbackURL(settings *core.Record) string {
 	base := "http://127.0.0.1:8090"
 	if settings != nil {
 		if v := settings.GetString("site_url"); v != "" {
 			base = v
 		}
 	}
-	return strings.TrimRight(base, "/") + "/auth/fitbit/callback"
+	return strings.TrimRight(base, "/") + "/auth/google-health/callback"
+}
+
+func googleHealthSecretPlaceholder(settings *core.Record) string {
+	if settings != nil && settings.GetString("google_health_client_secret") != "" {
+		return "Saved — leave blank to keep"
+	}
+	return "Google OAuth client secret"
 }

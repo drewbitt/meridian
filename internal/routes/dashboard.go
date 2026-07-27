@@ -49,11 +49,22 @@ func loadTodayData(app core.App, userID string) (engine.Schedule, engine.SleepDe
 		}
 		if err == nil && len(points) > 0 {
 			wakeTime := scheduleRec.GetDateTime("wake_time").Time()
-			schedule := engine.ClassifyZones(points, wakeTime)
+			settings, _ := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
+			sleepNeed := 8.0
+			if settings != nil && settings.GetFloat("sleep_need_hours") > 0 {
+				sleepNeed = settings.GetFloat("sleep_need_hours")
+			}
+			schedule := engine.ClassifyZonesForSleepNeed(points, wakeTime, sleepNeed)
+			schedule.Confidence = engine.ForecastConfidence(scheduleRec.GetString("confidence"))
+			schedule.ConfidenceReason = scheduleRec.GetString("confidence_reason")
+			schedule.ObservedNights = scheduleRec.GetInt("observed_nights")
+			schedule.IsEstimate = scheduleRec.GetBool("is_estimate")
 			// Solar anchors are derived rather than cached. Restore them so
 			// sunrise/sunset habits resolve on every request, not only on the
 			// first uncached computation.
-			settings, _ := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
+			if settings != nil {
+				schedule.LastSync = services.GoogleHealthLastAttempt(settings)
+			}
 			lat, lng, _ := services.CoordinatesFromSettings(settings)
 			solar := services.GetSolarTimes(lat, lng, time.Now().In(loc), false)
 			schedule.Sunrise = solar.Sunrise.In(loc)

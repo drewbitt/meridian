@@ -35,6 +35,18 @@ templ SleepEntry() {
 						onclick="this.showPicker()"
 					/>
 				</div>
+				<label class="flex items-start gap-3 rounded-lg border border-night-border bg-night-deep/40 px-4 py-3">
+					<input
+						type="checkbox"
+						id="is_nap"
+						name="is_nap"
+						class="mt-0.5"
+					/>
+					<span>
+						<span class="block text-sm font-medium text-gray-200">This was a nap</span>
+						<span class="mt-0.5 block text-xs text-gray-400">Use this for a separate daytime or pre-shift sleep, not a broken segment of the same main sleep.</span>
+					</span>
+				</label>
 				<button
 					type="submit"
 					class="btn-primary"
