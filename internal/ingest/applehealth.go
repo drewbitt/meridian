@@ -22,6 +22,9 @@ type appleHealthRecord struct {
 }
 
 const (
+	maxAppleHealthXMLSize = 512 << 20
+	maxAppleHealthRecords = 2_000_000
+
 	ahSleepAnalysis = "HKCategoryTypeIdentifierSleepAnalysis"
 	// iOS 16+ sleep values
 	ahInBed      = "HKCategoryValueSleepAnalysisInBed"
@@ -47,11 +50,14 @@ func ParseAppleHealthZip(zipPath string) ([]SleepRecord, error) {
 		if !strings.HasSuffix(f.Name, "export.xml") && f.Name != "apple_health_export/export.xml" {
 			continue
 		}
+		if f.UncompressedSize64 > maxAppleHealthXMLSize {
+			return nil, fmt.Errorf("%w: export.xml exceeds %d MiB", ErrInvalidFile, maxAppleHealthXMLSize>>20)
+		}
 		rc, err := f.Open()
 		if err != nil {
 			return nil, fmt.Errorf("open export.xml: %w", err)
 		}
-		records, err := parseAppleHealthXML(rc)
+		records, err := parseAppleHealthXMLLimited(rc)
 		_ = rc.Close()
 		return records, err
 	}
@@ -61,7 +67,7 @@ func ParseAppleHealthZip(zipPath string) ([]SleepRecord, error) {
 
 // ParseAppleHealthXML reads an Apple Health export.xml directly.
 func ParseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
-	return parseAppleHealthXML(r)
+	return parseAppleHealthXMLLimited(r)
 }
 
 // ParseAppleHealthFile opens and parses an Apple Health export file.
@@ -75,12 +81,21 @@ func ParseAppleHealthFile(path string) ([]SleepRecord, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return parseAppleHealthXML(f)
+	return parseAppleHealthXMLLimited(f)
+}
+
+func parseAppleHealthXMLLimited(r io.Reader) ([]SleepRecord, error) {
+	limited := &io.LimitedReader{R: r, N: maxAppleHealthXMLSize + 1}
+	records, err := parseAppleHealthXML(limited)
+	if limited.N == 0 {
+		return nil, fmt.Errorf("%w: export.xml exceeds %d MiB", ErrInvalidFile, maxAppleHealthXMLSize>>20)
+	}
+	return records, err
 }
 
 func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 	decoder := xml.NewDecoder(r)
-
+	recordCount := 0
 	// Group sleep samples by night (date of sleep start).
 	type nightData struct {
 		sleepStart time.Time
@@ -105,6 +120,10 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 		se, ok := token.(xml.StartElement)
 		if !ok || se.Name.Local != "Record" {
 			continue
+		}
+		recordCount++
+		if recordCount > maxAppleHealthRecords {
+			return nil, fmt.Errorf("%w: export.xml contains too many records", ErrInvalidFile)
 		}
 
 		var rec appleHealthRecord

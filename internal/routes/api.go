@@ -55,12 +55,20 @@ func importAndUpsert(app core.App, userID string, file io.Reader, filename, sour
 	if err != nil {
 		return 0, 0, err
 	}
-	for _, rec := range records {
-		if _, err := services.UpsertSleepRecord(app, userID, rec); err == nil {
+	total = len(records)
+	err = app.RunInTransaction(func(txApp core.App) error {
+		for _, rec := range records {
+			if _, err := services.UpsertSleepRecord(txApp, userID, rec); err != nil {
+				return err
+			}
 			imported++
 		}
+		return nil
+	})
+	if err != nil {
+		return 0, total, fmt.Errorf("save imported records: %w", err)
 	}
-	return imported, len(records), nil
+	return imported, total, nil
 }
 
 func registerAPIRoutes(se *core.ServeEvent, app core.App) {

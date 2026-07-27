@@ -1,14 +1,15 @@
 package templates
 
-templ Login(registrationEnabled bool) {
-	@Layout("Login") {
+templ Login(registrationEnabled bool, errMsg string) {
+	@Layout("Login", false) {
 		<div class="flex min-h-[60vh] items-center justify-center">
 			<div class="w-full max-w-sm card !p-8">
 				<h1 class="font-display text-3xl text-gray-100 text-center mb-2">Meridian</h1>
 				<p class="text-gray-500 text-center text-sm mb-8">
 					Sign in to see your day more clearly
 				</p>
-				<form id="login-form" class="space-y-4">
+				<form method="POST" action="/login" class="space-y-4">
+					<input id="login-redirect" type="hidden" name="redirect"/>
 					<div>
 						<input
 							type="email"
@@ -35,57 +36,26 @@ templ Login(registrationEnabled bool) {
 					>
 						Sign In
 					</button>
-					<div id="login-error" class="hidden text-sm text-dawn text-center"></div>
-					<div id="login-success" class="hidden text-sm text-noon text-center"></div>
+					if errMsg != "" {
+						<p class="text-sm text-dawn text-center">{ errMsg }</p>
+					}
 				</form>
 				if registrationEnabled {
 					<p class="mt-6 text-center text-xs text-gray-600">
-						Don't have an account? <a href="/register" class="text-dusk hover:text-dawn transition-colors">Create one</a>
+						Don't have an account? <a href="/register" class="text-dusk hover:text-dawn underline underline-offset-2 transition-colors">Create one</a>
 					</p>
 				}
 			</div>
 		</div>
 		<script>
 			const params = new URLSearchParams(window.location.search);
-			if (params.get('registered') === '1') {
-				const el = document.getElementById('login-success');
-				el.textContent = 'Account created. Please sign in.';
-				el.classList.remove('hidden');
-			}
-			document.getElementById('login-form').addEventListener('submit', async (e) => {
-				e.preventDefault();
-				const form = e.target;
-				const errEl = document.getElementById('login-error');
-				errEl.classList.add('hidden');
-				try {
-					const res = await fetch('/api/collections/users/auth-with-password', {
-						method: 'POST',
-						headers: {'Content-Type': 'application/json'},
-						body: JSON.stringify({
-							identity: form.identity.value,
-							password: form.password.value,
-						}),
-					});
-					if (!res.ok) {
-						const data = await res.json();
-						errEl.textContent = data.message || 'Login failed';
-						errEl.classList.remove('hidden');
-						return;
-					}
-					const data = await res.json();
-					document.cookie = 'pb_auth=' + data.token + '; Path=/; SameSite=Lax; Max-Age=604800';
-					window.location.href = params.get('redirect') || '/';
-				} catch (err) {
-					errEl.textContent = 'Network error';
-					errEl.classList.remove('hidden');
-				}
-			});
+			document.getElementById('login-redirect').value = params.get('redirect') || '';
 		</script>
 	}
 }
 
 templ Register(errMsg string) {
-	@Layout("Register") {
+	@Layout("Register", false) {
 		<div class="flex min-h-[60vh] items-center justify-center">
 			<div class="w-full max-w-sm card !p-8">
 				<h1 class="font-display text-3xl text-gray-100 text-center mb-2">Create Account</h1>
@@ -136,7 +106,7 @@ templ Register(errMsg string) {
 					</button>
 				</form>
 				<p class="mt-6 text-center text-xs text-gray-600">
-					Already have an account? <a href="/login" class="text-dusk hover:text-dawn transition-colors">Sign in</a>
+					Already have an account? <a href="/login" class="text-dusk hover:text-dawn underline underline-offset-2 transition-colors">Sign in</a>
 				</p>
 			</div>
 		</div>

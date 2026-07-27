@@ -1,9 +1,7 @@
 package routes
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -11,7 +9,6 @@ import (
 	"github.com/drewbitt/meridian/internal/services"
 	"github.com/drewbitt/meridian/internal/templates"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 func registerDashboardRoutes(se *core.ServeEvent, app core.App) {
@@ -30,50 +27,6 @@ func registerDashboardRoutes(se *core.ServeEvent, app core.App) {
 
 		resolvedHabits := loadHabitsForDashboard(app, userID, schedule)
 		return render(re, templates.Dashboard(schedule, debt, resolvedHabits))
-	})
-
-	// SSE endpoint for live dashboard updates.
-	se.Router.GET("/sse/dashboard", func(re *core.RequestEvent) error {
-		userID, err := authedUserID(re)
-		if err != nil {
-			return re.UnauthorizedError("", nil)
-		}
-
-		sse := datastar.NewSSE(re.Response, re.Request)
-
-		schedule, debt, err := loadTodayData(app, userID)
-		if err != nil {
-			_ = sse.PatchElements(`<div id="error">Failed to load data</div>`)
-			return nil
-		}
-
-		// Send chart data as a script execution.
-		// Points keep their UTC timestamps; the chart JS already converts them
-		// via toLocaleTimeString() in the browser.
-		chartData, err := json.Marshal(schedule.Points)
-		if err != nil {
-			return fmt.Errorf("marshal chart data: %w", err)
-		}
-		_ = sse.ExecuteScript(fmt.Sprintf(`window.updateEnergyChart(%s)`, chartData))
-
-		// Patch the debt card.
-		var buf bytes.Buffer
-		_ = templates.DebtCard(debt).Render(re.Request.Context(), &buf)
-		_ = sse.PatchElements(buf.String())
-
-		buf.Reset()
-		_ = templates.TodaySchedule(schedule).Render(re.Request.Context(), &buf)
-		_ = sse.PatchElements(buf.String())
-
-		// Patch habit timeline.
-		resolvedHabits := loadHabitsForDashboard(app, userID, schedule)
-		if len(resolvedHabits) > 0 {
-			buf.Reset()
-			_ = templates.HabitTimeline(resolvedHabits).Render(re.Request.Context(), &buf)
-			_ = sse.PatchElements(buf.String())
-		}
-
-		return nil
 	})
 
 }

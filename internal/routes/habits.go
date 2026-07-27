@@ -106,11 +106,12 @@ func registerHabitRoutes(se *core.ServeEvent, app core.App) {
 	})
 
 	se.Router.GET("/habits/{id}/edit", func(re *core.RequestEvent) error {
-		if _, err := authedUserID(re); err != nil {
+		userID, err := authedUserID(re)
+		if err != nil {
 			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/habits")
 		}
 
-		record, err := app.FindRecordById("habits", re.Request.PathValue("id"))
+		record, err := findUserHabit(app, userID, re.Request.PathValue("id"))
 		if err != nil {
 			return re.NotFoundError("Habit not found", nil)
 		}
@@ -119,11 +120,12 @@ func registerHabitRoutes(se *core.ServeEvent, app core.App) {
 	})
 
 	se.Router.POST("/habits/{id}/edit", func(re *core.RequestEvent) error {
-		if _, err := authedUserID(re); err != nil {
+		userID, err := authedUserID(re)
+		if err != nil {
 			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/habits")
 		}
 
-		record, err := app.FindRecordById("habits", re.Request.PathValue("id"))
+		record, err := findUserHabit(app, userID, re.Request.PathValue("id"))
 		if err != nil {
 			return re.NotFoundError("Habit not found", nil)
 		}
@@ -142,11 +144,12 @@ func registerHabitRoutes(se *core.ServeEvent, app core.App) {
 	})
 
 	se.Router.POST("/habits/{id}/delete", func(re *core.RequestEvent) error {
-		if _, err := authedUserID(re); err != nil {
+		userID, err := authedUserID(re)
+		if err != nil {
 			return re.Redirect(http.StatusTemporaryRedirect, "/login?redirect=/habits")
 		}
 
-		record, err := app.FindRecordById("habits", re.Request.PathValue("id"))
+		record, err := findUserHabit(app, userID, re.Request.PathValue("id"))
 		if err != nil {
 			return re.NotFoundError("Habit not found", nil)
 		}
@@ -157,6 +160,14 @@ func registerHabitRoutes(se *core.ServeEvent, app core.App) {
 
 		return re.Redirect(http.StatusSeeOther, "/habits?deleted=1")
 	})
+}
+
+func findUserHabit(app core.App, userID, habitID string) (*core.Record, error) {
+	return app.FindFirstRecordByFilter(
+		"habits",
+		"id = {:id} && user = {:user}",
+		map[string]any{"id": habitID, "user": userID},
+	)
 }
 
 func applyHabitForm(record *core.Record, re *core.RequestEvent) {

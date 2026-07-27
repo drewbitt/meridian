@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,31 +13,108 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-func registrationEnabled() bool {
+type registrationMode int
+
+const (
+	registrationFirstUser registrationMode = iota
+	registrationOpen
+	registrationClosed
+)
+
+var (
+	errRegistrationClosed = errors.New("registration is closed")
+	errAccountExists      = errors.New("account already exists")
+)
+
+func configuredRegistrationMode() registrationMode {
 	switch strings.ToLower(os.Getenv("ALLOW_REGISTRATION")) {
+	case "true", "1", "yes", "on":
+		return registrationOpen
 	case "false", "0", "no", "off":
-		return false
+		return registrationClosed
 	default:
-		return true
+		return registrationFirstUser
 	}
 }
 
-func registerAuthRoutes(se *core.ServeEvent, app core.App) {
-	enabled := registrationEnabled()
+func registrationEnabled(app core.App) bool {
+	switch configuredRegistrationMode() {
+	case registrationOpen:
+		return true
+	case registrationClosed:
+		return false
+	default:
+		total, err := app.CountRecords("users")
+		return err == nil && total == 0
+	}
+}
 
+func secureRequest(re *core.RequestEvent) bool {
+	return re.Request.TLS != nil ||
+		strings.EqualFold(re.Request.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+func setAuthCookie(re *core.RequestEvent, token string, maxAge int) {
+	http.SetCookie(re.Response, &http.Cookie{ //nolint:gosec // Secure is enabled for TLS and trusted HTTPS proxy requests.
+		Name:     "pb_auth",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   secureRequest(re),
+		MaxAge:   maxAge,
+	})
+}
+
+func registerAuthRoutes(se *core.ServeEvent, app core.App) {
 	se.Router.GET("/login", func(re *core.RequestEvent) error {
-		return render(re, templates.Login(enabled))
+		return render(re, templates.Login(registrationEnabled(app), ""))
+	})
+
+	se.Router.POST("/login", func(re *core.RequestEvent) error {
+		data := struct {
+			Identity string `form:"identity"`
+			Password string `form:"password"`
+			Redirect string `form:"redirect"`
+		}{}
+		if err := re.BindBody(&data); err != nil {
+			return renderLoginError(re, app, "Invalid form data")
+		}
+
+		user, err := app.FindAuthRecordByEmail("users", strings.TrimSpace(data.Identity))
+		if err != nil {
+			if dummy, dummyErr := app.FindFirstRecordByFilter("users", "id != ''", nil); dummyErr == nil {
+				_ = dummy.ValidatePassword("")
+			}
+			return renderLoginError(re, app, "Invalid email or password")
+		}
+		if !user.ValidatePassword(data.Password) {
+			return renderLoginError(re, app, "Invalid email or password")
+		}
+
+		token, err := user.NewAuthToken()
+		if err != nil {
+			slog.Error("failed to create auth token", "error", err)
+			return renderLoginError(re, app, "Sign in unavailable")
+		}
+		setAuthCookie(re, token, 7*24*60*60)
+
+		redirect := data.Redirect
+		if redirect == "" || !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
+			redirect = "/"
+		}
+		return re.Redirect(http.StatusSeeOther, redirect)
 	})
 
 	se.Router.GET("/register", func(re *core.RequestEvent) error {
-		if !enabled {
+		if !registrationEnabled(app) {
 			return re.Redirect(http.StatusTemporaryRedirect, "/login")
 		}
 		return render(re, templates.Register(""))
 	})
 
 	se.Router.POST("/register", func(re *core.RequestEvent) error {
-		if !enabled {
+		if !registrationEnabled(app) {
 			return re.Redirect(http.StatusTemporaryRedirect, "/login")
 		}
 
@@ -60,50 +138,65 @@ func registerAuthRoutes(se *core.ServeEvent, app core.App) {
 			return renderRegisterError(re, "Password must be at least 8 characters")
 		}
 
-		usersCol, err := app.FindCollectionByNameOrId("users")
-		if err != nil {
-			slog.Error("failed to find users collection", "error", err)
-			return renderRegisterError(re, "Registration unavailable")
-		}
+		var user *core.Record
+		err := app.RunInTransaction(func(txApp core.App) error {
+			if configuredRegistrationMode() == registrationFirstUser {
+				total, err := txApp.CountRecords("users")
+				if err != nil || total != 0 {
+					return errRegistrationClosed
+				}
+			}
 
-		existing, _ := app.FindAuthRecordByEmail("users", data.Email)
-		if existing != nil {
-			return renderRegisterError(re, "An account with this email already exists")
-		}
+			if existing, _ := txApp.FindAuthRecordByEmail("users", data.Email); existing != nil {
+				return errAccountExists
+			}
 
-		user := core.NewRecord(usersCol)
-		user.Set("email", data.Email)
-		user.Set("password", data.Password)
+			usersCol, err := txApp.FindCollectionByNameOrId("users")
+			if err != nil {
+				return err
+			}
+			user = core.NewRecord(usersCol)
+			user.Set("email", data.Email)
+			user.Set("password", data.Password)
+			if err := txApp.Save(user); err != nil {
+				return err
+			}
 
-		if err := app.Save(user); err != nil {
-			slog.Error("failed to create user", "error", err)
-			return renderRegisterError(re, "Failed to create account")
-		}
-
-		settingsCol, err := app.FindCollectionByNameOrId("settings")
-		if err == nil {
+			settingsCol, err := txApp.FindCollectionByNameOrId("settings")
+			if err != nil {
+				return err
+			}
 			settings := core.NewRecord(settingsCol)
 			settings.Set("user", user.Id)
 			settings.Set("sleep_need_hours", 8.0)
 			settings.Set("notifications_enabled", false)
-			if err := app.Save(settings); err != nil {
-				slog.Error("failed to create default settings", "user_id", user.Id, "error", err)
+			if loc := locationFromCookie(re); loc != nil {
+				settings.Set("timezone", loc.String())
 			}
+			return txApp.Save(settings)
+		})
+		if errors.Is(err, errRegistrationClosed) {
+			return re.Redirect(http.StatusSeeOther, "/login")
+		}
+		if errors.Is(err, errAccountExists) {
+			return renderRegisterError(re, "An account with this email already exists")
+		}
+		if err != nil {
+			slog.Error("failed to create account", "error", err)
+			return renderRegisterError(re, "Failed to create account")
 		}
 
-		return re.Redirect(http.StatusSeeOther, "/login?registered=1")
+		token, err := user.NewAuthToken()
+		if err != nil {
+			slog.Error("failed to create auth token", "error", err)
+			return re.Redirect(http.StatusSeeOther, "/login")
+		}
+		setAuthCookie(re, token, 7*24*60*60)
+		return re.Redirect(http.StatusSeeOther, "/settings?welcome=1")
 	})
 
 	se.Router.POST("/logout", func(re *core.RequestEvent) error {
-		http.SetCookie(re.Response, &http.Cookie{
-			Name:     "pb_auth",
-			Value:    "",
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
-			Secure:   true,
-			MaxAge:   -1,
-		})
+		setAuthCookie(re, "", -1)
 		return re.Redirect(http.StatusSeeOther, "/login")
 	})
 }
@@ -127,4 +220,8 @@ func renderWithStatus(re *core.RequestEvent, status int, comp templ.Component) e
 
 func renderRegisterError(re *core.RequestEvent, errMsg string) error {
 	return renderWithStatus(re, http.StatusBadRequest, templates.Register(errMsg))
+}
+
+func renderLoginError(re *core.RequestEvent, app core.App, errMsg string) error {
+	return renderWithStatus(re, http.StatusUnauthorized, templates.Login(registrationEnabled(app), errMsg))
 }

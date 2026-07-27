@@ -2,6 +2,8 @@ package main
 
 import (
 	"log/slog"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/drewbitt/meridian/assets"
@@ -14,6 +16,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		if !healthy() {
+			os.Exit(1)
+		}
+		return
+	}
+
 	app := pocketbase.New()
 
 	// Ensure collections exist on first run.
@@ -21,7 +30,7 @@ func main() {
 		Id: "init-collections",
 		Func: func(se *core.ServeEvent) error {
 			if err := schema.EnsureCollections(app); err != nil {
-				slog.Error("failed to ensure collections", "error", err)
+				return err
 			}
 			return se.Next()
 		},
@@ -54,7 +63,7 @@ func main() {
 		Func: func(se *core.ServeEvent) error {
 			se.Router.GET("/assets/{path...}", func(re *core.RequestEvent) error {
 				path := re.Request.PathValue("path")
-				re.Response.Header().Set("Cache-Control", "public, max-age=31536000")
+				re.Response.Header().Set("Cache-Control", "public, max-age=0, must-revalidate")
 				return re.FileFS(assets.FS(), path)
 			})
 			return se.Next()
@@ -93,6 +102,16 @@ func main() {
 	if err := app.Start(); err != nil {
 		slog.Error("failed to start", "error", err)
 	}
+}
+
+func healthy() bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://localhost:8090/api/health")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func runMorningJobForAllUsers(app *pocketbase.PocketBase) {

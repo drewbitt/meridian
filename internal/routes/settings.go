@@ -21,11 +21,12 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 		settings, _ := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
 		q := re.Request.URL.Query()
 		saved := q.Get("saved") == "1"
+		welcome := q.Get("welcome") == "1"
 		importedCount := q.Get("imported")
 		importError := q.Get("import_error")
 		fitbitError := q.Get("fitbit_error")
 		fitbitStatus := q.Get("fitbit") // "connected", "disconnected", "synced"
-		return render(re, templates.Settings(settings, saved, importedCount, importError, fitbitError, fitbitStatus))
+		return render(re, templates.Settings(settings, saved, welcome, importedCount, importError, fitbitError, fitbitStatus))
 	})
 
 	se.Router.POST("/settings", func(re *core.RequestEvent) error {
@@ -163,7 +164,10 @@ func registerSettingsRoutes(se *core.ServeEvent, app core.App) {
 
 		imported, _, err := importAndUpsert(app, userID, file, header.Filename, source)
 		if err != nil {
-			return re.Redirect(http.StatusSeeOther, "/settings?import_error=Failed+to+parse+file")
+			return re.Redirect(http.StatusSeeOther, "/settings?import_error=Import+failed")
+		}
+		if _, err := services.RefreshScheduleIfNeeded(app, userID); err != nil {
+			return re.Redirect(http.StatusSeeOther, "/settings?import_error=Imported+records+but+failed+to+refresh+schedule")
 		}
 
 		return re.Redirect(http.StatusSeeOther, fmt.Sprintf("/settings?imported=%d", imported))

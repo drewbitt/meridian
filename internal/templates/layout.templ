@@ -1,6 +1,6 @@
 package templates
 
-templ Layout(title string) {
+templ Layout(title string, showNav ...bool) {
 	<!DOCTYPE html>
 	<html lang="en" class="h-full" style="color-scheme: dark">
 	<head>
@@ -14,8 +14,8 @@ templ Layout(title string) {
 		<script type="importmap">
 		{
 			"imports": {
-				"chart.js/auto": "https://esm.sh/chart.js@4/auto",
-				"temporal-polyfill/global": "https://esm.sh/temporal-polyfill@0.3/global"
+				"chart.js/auto": "https://esm.sh/chart.js@4.5.1/auto",
+				"temporal-polyfill/global": "https://esm.sh/temporal-polyfill@0.3.2/global"
 			}
 		}
 		</script>
@@ -36,11 +36,12 @@ templ Layout(title string) {
 				}
 			});
 		</script>
-		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0-RC.8/bundles/datastar.js"></script>
 	</head>
 	<body class="h-full bg-night text-gray-200 font-body antialiased relative">
 		<div class="min-h-full relative z-10">
-			@Nav()
+			if len(showNav) == 0 || showNav[0] {
+				@Nav()
+			}
 			<main class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
 				{ children... }
 			</main>
@@ -63,7 +64,7 @@ templ Nav() {
 					</div>
 				</div>
 				<form method="POST" action="/logout">
-					<button type="submit" class="text-gray-500 hover:text-gray-300 px-3 py-1.5 text-sm font-medium transition-colors">Sign Out</button>
+					<button type="submit" class="text-gray-400 hover:text-gray-200 px-3 py-1.5 text-sm font-medium transition-colors">Sign Out</button>
 				</form>
 			</div>
 		</div>

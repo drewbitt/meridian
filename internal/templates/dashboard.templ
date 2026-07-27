@@ -10,10 +10,7 @@ import (
 
 templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits []services.ResolvedHabit) {
 	@Layout("Dashboard") {
-		<div
-			data-init="@get('/sse/dashboard')"
-			class="space-y-8"
-		>
+		<div class="space-y-8">
 			<div class="grid grid-cols-1 gap-8 lg:grid-cols-3 items-start">
 				<div class="lg:col-span-1">
 					@DebtCard(debt)
@@ -62,7 +59,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 			}
 		</div>
 
-		<script>window.updateEnergyChart = function(d) { window.__chartInit = d; };</script>
+		@templ.JSONScript("energy-points", schedule.Points)
 		<script type="module">
 			import Chart from "chart.js/auto";
 
@@ -138,7 +135,8 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 					},
 				});
 			};
-			if (window.__chartInit) { window.updateEnergyChart(window.__chartInit); window.__chartInit = null; }
+			const energyPoints = document.getElementById('energy-points');
+			if (energyPoints) window.updateEnergyChart(JSON.parse(energyPoints.textContent));
 		</script>
 	}
 }
