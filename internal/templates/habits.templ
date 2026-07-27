@@ -22,7 +22,7 @@ templ Habits(habits []*core.Record, resolved []services.ResolvedHabit, presets [
 			}
 
 			<div>
-				<h2 class="font-display text-2xl text-gray-100">Habits</h2>
+				<h1 class="font-display text-2xl text-gray-100">Habits</h1>
 				<p class="text-sm text-gray-400 mt-1">
 					Science-backed habits anchored to your energy schedule. Get notified at the right time.
 				</p>
@@ -31,7 +31,7 @@ templ Habits(habits []*core.Record, resolved []services.ResolvedHabit, presets [
 			// --- Today's Timeline ---
 			if len(resolved) > 0 {
 				<div>
-					<h3 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-3">Today's Timeline</h3>
+					<h2 class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-3">Today's Timeline</h2>
 					<div class="space-y-1">
 						for _, rh := range resolved {
 							@habitTimelineRow(rh)
@@ -42,8 +42,8 @@ templ Habits(habits []*core.Record, resolved []services.ResolvedHabit, presets [
 
 			// --- Suggested Habits ---
 			<div>
-				<h3 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-1">Suggested Habits</h3>
-				<p class="text-xs text-gray-500 mb-3">One-click enable. Timed to your energy schedule.</p>
+				<h2 class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-1">Suggested Habits</h2>
+				<p class="text-xs text-gray-400 mb-3">One-click enable. Timed to your energy schedule.</p>
 				for _, cat := range []string{"morning", "afternoon", "evening"} {
 					@presetCategory(cat, presets, activePresets)
 				}
@@ -52,7 +52,7 @@ templ Habits(habits []*core.Record, resolved []services.ResolvedHabit, presets [
 			// --- Custom Habits ---
 			if len(habits) > 0 {
 				<div>
-					<h3 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-3">Your Habits</h3>
+					<h2 class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-3">Your Habits</h2>
 					<div class="space-y-2">
 						for _, h := range habits {
 							@habitCard(h)
@@ -85,14 +85,14 @@ templ habitTimelineRow(rh services.ResolvedHabit) {
 		</span>
 		<span class="text-sm text-gray-200">{ rh.Habit.Name }</span>
 		if !rh.Habit.Notify {
-			<span class="text-xs text-gray-600 ml-auto">silent</span>
+			<span class="text-xs text-gray-400 ml-auto">silent</span>
 		}
 	</div>
 }
 
 templ presetCategory(category string, presets []services.HabitPreset, active map[string]bool) {
 	<div>
-		<div class="text-[10px] font-mono uppercase tracking-widest text-gray-600 mb-2 mt-5 first:mt-0">{ category }</div>
+		<div class="text-[10px] font-mono uppercase tracking-widest text-gray-400 mb-2 mt-5 first:mt-0">{ category }</div>
 		<div class="rounded-lg border border-gray-700/50 overflow-hidden divide-y divide-gray-700/30">
 			for _, p := range presets {
 				if p.Category == category {
@@ -110,7 +110,7 @@ templ presetCard(p services.HabitPreset, isActive bool) {
 		<span style="flex-shrink:0" class={ "text-base mt-0.5", presetIconClass(p.Category) }>{ p.Icon }</span>
 		<div style="flex:1 1 0%;min-width:0">
 			<div class="text-sm font-medium text-gray-200">{ p.Name }</div>
-			<div class="text-xs text-gray-500 mt-1 leading-relaxed">{ p.Description }</div>
+			<div class="text-xs text-gray-400 mt-1 leading-relaxed">{ p.Description }</div>
 		</div>
 		if isActive {
 			<span style="flex-shrink:0" class="text-[10px] text-dusk font-mono mt-1">active</span>
@@ -130,20 +130,20 @@ templ habitCard(h *core.Record) {
 		templ.KV("opacity-50", !h.GetBool("enabled")) }>
 		<div style="min-width:0">
 			<span class="text-sm font-medium text-gray-200">{ h.GetString("name") }</span>
-			<span class="ml-2 text-xs text-gray-500">
+			<span class="ml-2 text-xs text-gray-400">
 				{ anchorLabel(h.GetString("anchor"), h.GetInt("offset_minutes"), h.GetString("custom_time")) }
 			</span>
 			if h.GetBool("notify") {
-				<span class="ml-1 text-xs text-gray-500" title="Notifications on">🔔</span>
+				<span class="ml-1 text-xs text-gray-400" title="Notifications on">🔔</span>
 			}
 			if !h.GetBool("enabled") {
-				<span class="ml-2 text-xs text-gray-500 italic">(disabled)</span>
+				<span class="ml-2 text-xs text-gray-400 italic">(disabled)</span>
 			}
 		</div>
 		<div style="display:flex;align-items:center;gap:0.75rem;flex-shrink:0">
-			<a href={ templ.SafeURL("/habits/" + h.Id + "/edit") } class="text-xs text-gray-500 hover:text-gray-300 transition-colors">Edit</a>
+			<a href={ templ.SafeURL("/habits/" + h.Id + "/edit") } class="text-xs text-gray-400 hover:text-gray-200 transition-colors">Edit</a>
 			<form method="POST" action={ templ.SafeURL("/habits/" + h.Id + "/delete") } style="display:flex">
-				<button type="submit" class="text-xs text-gray-500 hover:text-dawn transition-colors" onclick="return confirm('Delete this habit?')">Delete</button>
+				<button type="submit" class="text-xs text-gray-400 hover:text-dawn transition-colors" onclick="return confirm('Delete this habit?')">Delete</button>
 			</form>
 		</div>
 	</div>
@@ -152,7 +152,7 @@ templ habitCard(h *core.Record) {
 templ HabitEdit(habit *core.Record) {
 	@Layout("Edit Habit") {
 		<div class="mx-auto max-w-lg space-y-6">
-			<h2 class="font-display text-2xl text-gray-100">Edit Habit</h2>
+			<h1 class="font-display text-2xl text-gray-100">Edit Habit</h1>
 			<div class="rounded-lg border border-gray-700 bg-night-deep/50 p-5">
 				@HabitForm(habit)
 			</div>
@@ -164,7 +164,7 @@ templ HabitEdit(habit *core.Record) {
 templ HabitForm(habit *core.Record) {
 	<form method="POST" action={ templ.SafeURL(habitFormAction(habit)) } class="space-y-3">
 		<div>
-			<label for="name" class="block text-xs font-medium text-gray-500 mb-1">Name</label>
+			<label for="name" class="block text-xs font-medium text-gray-400 mb-1">Name</label>
 			<input
 				type="text"
 				id="name"
@@ -176,7 +176,7 @@ templ HabitForm(habit *core.Record) {
 			/>
 		</div>
 		<div>
-			<label for="anchor" class="block text-xs font-medium text-gray-500 mb-1">Anchor to</label>
+			<label for="anchor" class="block text-xs font-medium text-gray-400 mb-1">Anchor to</label>
 			<select id="anchor" name="anchor" class="input-field" onchange="toggleCustomTime(this)">
 				for _, a := range services.AllAnchors {
 					<option value={ a.Value } selected?={ habitVal(habit, "anchor") == a.Value || (habitVal(habit, "anchor") == "" && a.Value == "morning_wake") }>{ a.Label }</option>
@@ -184,7 +184,7 @@ templ HabitForm(habit *core.Record) {
 			</select>
 		</div>
 		<div id="offset-row">
-			<label for="offset_minutes" class="block text-xs font-medium text-gray-500 mb-1">
+			<label for="offset_minutes" class="block text-xs font-medium text-gray-400 mb-1">
 				Offset (minutes)
 			</label>
 			<input
@@ -197,7 +197,7 @@ templ HabitForm(habit *core.Record) {
 			/>
 		</div>
 		<div id="custom-time-row" style="display:none">
-			<label for="custom_time" class="block text-xs font-medium text-gray-500 mb-1">Time (24h)</label>
+			<label for="custom_time" class="block text-xs font-medium text-gray-400 mb-1">Time (24h)</label>
 			<input
 				type="time"
 				id="custom_time"
@@ -282,7 +282,7 @@ func anchorLabel(anchor string, offset int, customTime string) string {
 func habitTimeColor(rh services.ResolvedHabit) string {
 	now := time.Now()
 	if rh.Time.Before(now) {
-		return "text-gray-600"
+		return "text-gray-400"
 	}
 	switch rh.Habit.Anchor {
 	case "morning_wake", "sunrise", "morning_peak", "best_focus":
@@ -346,12 +346,12 @@ func presetIconClass(category string) string {
 templ HabitTimeline(resolved []services.ResolvedHabit) {
 	if len(resolved) > 0 {
 		<div id="habit-timeline">
-			<h2 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-3">Upcoming Habits</h2>
+			<h2 class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-3">Upcoming Habits</h2>
 			<div class="grid grid-cols-2 gap-px bg-night-border rounded-lg overflow-hidden sm:grid-cols-3 lg:grid-cols-4">
 				for _, rh := range resolved {
 					if !rh.Time.Before(time.Now()) {
 						<div class={ "bg-night p-4 border-t-2", habitBorderColor(rh.Habit.Anchor) }>
-							<div class="text-xs font-mono uppercase tracking-widest text-gray-600">{ rh.Habit.Name }</div>
+							<div class="text-xs font-mono uppercase tracking-widest text-gray-400">{ rh.Habit.Name }</div>
 							<div class={ "text-sm font-semibold mt-1.5 font-mono", habitTextColor(rh.Habit.Anchor) }>
 								<local-time datetime={ isoTime(rh.Time) }></local-time>
 							</div>

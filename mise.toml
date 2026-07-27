@@ -39,9 +39,16 @@ run = """
 mkdir -p assets/dist
 templ generate
 tailwindcss -i assets/input.css -o assets/dist/styles.min.css --minify
+curl -fsSL https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js -o assets/dist/chart.umd.min.js
+curl -fsSL https://cdn.jsdelivr.net/npm/temporal-polyfill@0.3.2/global.min.js -o assets/dist/temporal-polyfill.global.min.js
 """
 sources = ["internal/templates/**/*.templ", "assets/input.css"]
-outputs = ["internal/templates/**/*_templ.go", "assets/dist/styles.min.css"]
+outputs = [
+  "internal/templates/**/*_templ.go",
+  "assets/dist/styles.min.css",
+  "assets/dist/chart.umd.min.js",
+  "assets/dist/temporal-polyfill.global.min.js",
+]
 
 # ── Build ─────────────────────────────────────────────────────
 

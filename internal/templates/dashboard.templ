@@ -18,7 +18,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 
 				<div class="lg:col-span-2">
 					<div>
-						<h2 class="font-display text-lg text-gray-100 mb-4">Energy Curve</h2>
+						<h1 class="font-display text-lg text-gray-100 mb-4">Energy Curve</h1>
 						<div class="relative h-64 surface">
 							<canvas id="energy-chart"></canvas>
 						</div>
@@ -28,10 +28,10 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 
 			@TodaySchedule(schedule)
 
-			if !schedule.WakeTime.IsZero() {
+			if len(schedule.Points) > 0 {
 				<div>
-					<h2 class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-3">Key Times</h2>
-					<div class="grid grid-cols-2 gap-px bg-night-border rounded-lg overflow-hidden sm:grid-cols-4">
+					<h2 class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-3">Key Times</h2>
+					<div class={ keyTimeGridClass(schedule), " gap-px bg-night-border rounded-lg overflow-hidden" }>
 						if !schedule.BestFocusStart.IsZero() {
 							@TimeCard("Best Focus", "noon") {
 								<local-time datetime={ isoTime(schedule.BestFocusStart) }></local-time>
@@ -60,9 +60,8 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 		</div>
 
 		@templ.JSONScript("energy-points", schedule.Points)
-		<script type="module">
-			import Chart from "chart.js/auto";
-
+		<script src="/assets/dist/chart.umd.min.js"></script>
+		<script>
 			let chart = null;
 			const fmt = window.__timeFmt;
 
@@ -143,7 +142,7 @@ templ Dashboard(schedule engine.Schedule, debt engine.SleepDebt, resolvedHabits 
 
 templ DebtCard(debt engine.SleepDebt) {
 	<div id="debt-card" class="hero-stat">
-		<div class="text-xs font-mono uppercase tracking-widest text-gray-600 mb-4">Sleep Debt</div>
+		<div class="text-xs font-mono uppercase tracking-widest text-gray-400 mb-4">Sleep Debt</div>
 		<div class={ "font-display text-6xl leading-none", debtColor(debt.Category) }>
 			{ fmt.Sprintf("%.1fh", debt.Hours) }
 		</div>
@@ -172,7 +171,7 @@ templ TodaySchedule(schedule engine.Schedule) {
 	<div id="today-schedule" class="section-ruled">
 		<h2 class="font-display text-lg text-gray-100 mb-4">Today</h2>
 		if len(schedule.Points) == 0 {
-			<p class="text-gray-500">No sleep data yet. <a href="/sleep" class="text-dusk hover:text-dawn transition-colors underline underline-offset-2">Log your sleep</a> to see your energy schedule.</p>
+			<p class="text-gray-400">No sleep data yet. <a href="/sleep" class="text-dusk hover:text-dawn transition-colors underline underline-offset-2">Log your sleep</a> to see your energy schedule.</p>
 		} else {
 			<div class="flex gap-2 flex-wrap">
 				for _, zone := range uniqueZones(schedule.Points) {
@@ -187,7 +186,7 @@ templ TodaySchedule(schedule engine.Schedule) {
 
 templ TimeCard(label, colorName string) {
 	<div class={ "bg-night p-4", timeCardBorder(colorName) }>
-		<div class="text-xs font-mono uppercase tracking-widest text-gray-600">{ label }</div>
+		<div class="text-xs font-mono uppercase tracking-widest text-gray-400">{ label }</div>
 		<div class={ "text-sm font-semibold mt-1.5 font-mono", timeCardText(colorName) }>
 			{ children... }
 		</div>
@@ -227,6 +226,13 @@ func timeCardText(colorName string) string {
 	default:
 		return "text-dusk"
 	}
+}
+
+func keyTimeGridClass(schedule engine.Schedule) string {
+	if schedule.OptimalNapStart.IsZero() {
+		return "grid grid-cols-1 sm:grid-cols-3"
+	}
+	return "grid grid-cols-2 sm:grid-cols-4"
 }
 
 func debtColor(cat engine.DebtCategory) string {

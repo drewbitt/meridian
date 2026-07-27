@@ -11,16 +11,8 @@ templ Layout(title string, showNav ...bool) {
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
 		<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 		<link rel="stylesheet" href="/assets/dist/styles.min.css"/>
-		<script type="importmap">
-		{
-			"imports": {
-				"chart.js/auto": "https://esm.sh/chart.js@4.5.1/auto",
-				"temporal-polyfill/global": "https://esm.sh/temporal-polyfill@0.3.2/global"
-			}
-		}
-		</script>
-		<script type="module">
-			import "temporal-polyfill/global";
+		<script src="/assets/dist/temporal-polyfill.global.min.js"></script>
+		<script>
 			const tz = Temporal.Now.timeZoneId();
 			if (tz) document.cookie = 'tz=' + encodeURIComponent(tz) + ';path=/;max-age=86400;SameSite=Lax';
 			window.__timeFmt = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' });
@@ -66,6 +58,12 @@ templ Nav() {
 				<form method="POST" action="/logout">
 					<button type="submit" class="text-gray-400 hover:text-gray-200 px-3 py-1.5 text-sm font-medium transition-colors">Sign Out</button>
 				</form>
+			</div>
+			<div class="flex items-center justify-between border-t border-night-border/70 py-2 sm:hidden">
+				<a href="/" class="text-gray-300 hover:text-white px-2 py-1 text-xs font-medium rounded-md transition-colors hover:bg-night-card">Dashboard</a>
+				<a href="/habits" class="text-gray-300 hover:text-white px-2 py-1 text-xs font-medium rounded-md transition-colors hover:bg-night-card">Habits</a>
+				<a href="/sleep" class="text-gray-300 hover:text-white px-2 py-1 text-xs font-medium rounded-md transition-colors hover:bg-night-card">Log Sleep</a>
+				<a href="/settings" class="text-gray-300 hover:text-white px-2 py-1 text-xs font-medium rounded-md transition-colors hover:bg-night-card">Settings</a>
 			</div>
 		</div>
 	</nav>

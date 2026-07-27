@@ -4,6 +4,10 @@ FROM --platform=$BUILDPLATFORM golang:1.26.5-bookworm AS build
 ARG TARGETOS TARGETARCH
 # renovate: datasource=github-releases depName=tailwindlabs/tailwindcss
 ARG TAILWIND_VERSION=4.3.3
+# renovate: datasource=npm depName=chart.js
+ARG CHARTJS_VERSION=4.5.1
+# renovate: datasource=npm depName=temporal-polyfill
+ARG TEMPORAL_POLYFILL_VERSION=0.3.2
 
 WORKDIR /src
 
@@ -29,7 +33,11 @@ COPY . .
 RUN templ generate
 
 RUN mkdir -p assets/dist && \
-    tailwindcss -i assets/input.css -o assets/dist/styles.min.css --minify
+    tailwindcss -i assets/input.css -o assets/dist/styles.min.css --minify && \
+    curl -fSL "https://cdn.jsdelivr.net/npm/chart.js@${CHARTJS_VERSION}/dist/chart.umd.min.js" \
+      -o assets/dist/chart.umd.min.js && \
+    curl -fSL "https://cdn.jsdelivr.net/npm/temporal-polyfill@${TEMPORAL_POLYFILL_VERSION}/global.min.js" \
+      -o assets/dist/temporal-polyfill.global.min.js
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
