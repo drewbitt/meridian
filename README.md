@@ -92,9 +92,18 @@ Keep the backup somewhere outside the host running Meridian. To restore it, stop
 |---|---|---|
 | Manual | Sleep entry form | On demand |
 | Fitbit | OAuth 2.0 | Every 30 minutes |
-| Health Connect | JSON upload | On demand |
+| Health Connect | Compatible JSON export | On demand |
 | Apple Health | ZIP or XML upload | On demand |
 | Gadgetbridge | SQLite upload | On demand |
+
+Health Connect imports currently accept JSON whose records contain session start/end
+times and sleep stages. The encrypted/native Health Connect backup ZIP is not yet
+supported; use a compatible JSON exporter instead.
+
+Gadgetbridge imports support current Xiaomi sleep-time samples, the legacy
+`SLEEP_SESSION` compatibility table, and Mi Band/Huami activity-sample sleep data.
+Other device-specific Gadgetbridge schemas may not contain a compatible sleep
+representation.
 
 ### Fitbit
 
