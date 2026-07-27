@@ -59,6 +59,9 @@ func registerSleepRoutes(se *core.ServeEvent, app core.App) {
 		if sleepStart.After(time.Now().Add(1 * time.Hour)) {
 			return re.BadRequestError("Sleep time cannot be in the future", nil)
 		}
+		if sleepEnd.After(time.Now().Add(1 * time.Hour)) {
+			return re.BadRequestError("Wake time cannot be in the future", nil)
+		}
 
 		sleepDate := ingest.SleepNightDate(sleepStart)
 

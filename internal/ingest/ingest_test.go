@@ -148,8 +148,8 @@ func TestParseHealthConnect_AllStageTypes(t *testing.T) {
 	if rec.Source != SourceHealthConnect {
 		t.Errorf("expected source %s, got %s", SourceHealthConnect, rec.Source)
 	}
-	if rec.DurationMinutes != 480 {
-		t.Errorf("expected 480 total minutes, got %d", rec.DurationMinutes)
+	if rec.DurationMinutes != 435 {
+		t.Errorf("expected 435 asleep minutes, got %d", rec.DurationMinutes)
 	}
 
 	// Session 1 stages:
@@ -228,6 +228,41 @@ func TestParseHealthConnect_SleepNightDate(t *testing.T) {
 	wantDate := time.Date(2024, 3, 10, 0, 0, 0, 0, loc)
 	if !records[0].Date.Equal(wantDate) {
 		t.Errorf("date: got %v, want %v", records[0].Date, wantDate)
+	}
+}
+
+func TestParseHealthConnect_AwakeInBedAndMalformedStages(t *testing.T) {
+	t.Parallel()
+	input := `{
+		"sleepSessions": [{
+			"startTime": "2024-03-11T00:00:00-05:00",
+			"endTime": "2024-03-11T08:00:00-05:00",
+			"stages": [
+				{"startTime": "2024-03-11T00:00:00-05:00", "endTime": "2024-03-11T00:15:00-05:00", "stage": 7},
+				{"startTime": "2024-03-11T00:15:00-05:00", "endTime": "2024-03-11T01:00:00-05:00", "stage": 4},
+				{"startTime": "2024-03-11T00:30:00-05:00", "endTime": "2024-03-11T02:00:00-05:00", "stage": 5},
+				{"startTime": "2024-03-11T03:00:00-05:00", "endTime": "2024-03-11T02:00:00-05:00", "stage": 6},
+				{"startTime": "2024-03-10T23:00:00-05:00", "endTime": "2024-03-11T00:00:00-05:00", "stage": 1}
+			]
+		}]
+	}`
+
+	records, err := ParseHealthConnect(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	rec := records[0]
+	if rec.AwakeMinutes != 15 {
+		t.Errorf("awake: got %d, want 15", rec.AwakeMinutes)
+	}
+	if rec.LightMinutes != 45 {
+		t.Errorf("light: got %d, want 45", rec.LightMinutes)
+	}
+	if rec.DeepMinutes != 0 || rec.REMMinutes != 0 {
+		t.Errorf("malformed stages were counted: deep=%d rem=%d", rec.DeepMinutes, rec.REMMinutes)
 	}
 }
 
@@ -410,6 +445,24 @@ func TestParseAppleHealthXML_TruncatedXML(t *testing.T) {
 	}
 }
 
+func TestParseAppleHealthXML_DeduplicatesIdenticalRecords(t *testing.T) {
+	t.Parallel()
+	input := `<HealthData>
+		<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2024-03-10 23:00:00 -0500" endDate="2024-03-11 01:00:00 -0500"/>
+		<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2024-03-10 23:00:00 -0500" endDate="2024-03-11 01:00:00 -0500"/>
+	</HealthData>`
+	records, err := ParseAppleHealthXML(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 night, got %d", len(records))
+	}
+	if records[0].LightMinutes != 120 || records[0].DurationMinutes != 120 {
+		t.Errorf("duplicate interval was counted: %+v", records[0])
+	}
+}
+
 func createAppleHealthZip(t *testing.T, xmlContent string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "apple_health_export.zip")
@@ -511,6 +564,40 @@ func TestParseAppleHealthFile(t *testing.T) {
 
 // ===== Gadgetbridge =====
 
+func TestParseGadgetbridge_XiaomiSleepTimes(t *testing.T) {
+	dbPath := createTestDBPath(t, func(db *sql.DB) {
+		mustExec(t, db, `CREATE TABLE XIAOMI_SLEEP_TIME_SAMPLE (
+			TIMESTAMP INTEGER,
+			WAKEUP_TIME INTEGER,
+			TOTAL_DURATION INTEGER,
+			DEEP_SLEEP_DURATION INTEGER,
+			REM_SLEEP_DURATION INTEGER,
+			LIGHT_SLEEP_DURATION INTEGER,
+			AWAKE_DURATION INTEGER
+		)`)
+		start := time.Date(2024, 3, 11, 0, 30, 0, 0, time.UTC)
+		end := start.Add(7*time.Hour + 30*time.Minute)
+		mustExec(t, db, `INSERT INTO XIAOMI_SLEEP_TIME_SAMPLE VALUES (?, ?, 420, 90, 75, 255, 30)`,
+			start.UnixMilli(), end.UnixMilli())
+	})
+
+	records, err := ParseGadgetbridge(dbPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	rec := records[0]
+	if rec.DurationMinutes != 420 || rec.DeepMinutes != 90 ||
+		rec.REMMinutes != 75 || rec.LightMinutes != 255 || rec.AwakeMinutes != 30 {
+		t.Errorf("unexpected Xiaomi summary: %+v", rec)
+	}
+	if got := rec.Date.Format("2006-01-02"); got != "2024-03-10" {
+		t.Errorf("night date: got %s, want 2024-03-10", got)
+	}
+}
+
 func TestParseGadgetbridge_SleepSessions(t *testing.T) {
 	db := createTestDBConn(t, func(db *sql.DB) {
 		mustExec(t, db, `CREATE TABLE SLEEP_SESSION (
@@ -548,6 +635,49 @@ func TestParseGadgetbridge_SleepSessions(t *testing.T) {
 	}
 	if rec.AwakeMinutes != 35 {
 		t.Errorf("awake: got %d, want 35", rec.AwakeMinutes)
+	}
+}
+
+func TestParseGadgetbridge_SleepSessionsSkipInvalidIntervals(t *testing.T) {
+	db := createTestDBConn(t, func(db *sql.DB) {
+		mustExec(t, db, `CREATE TABLE SLEEP_SESSION (
+			TIMESTAMP_START INTEGER,
+			TIMESTAMP_END INTEGER,
+			DEEP_SLEEP_MINUTES INTEGER,
+			REM_SLEEP_MINUTES INTEGER,
+			LIGHT_SLEEP_MINUTES INTEGER,
+			AWAKE_MINUTES INTEGER
+		)`)
+		mustExec(t, db, `INSERT INTO SLEEP_SESSION VALUES (1710108000, 1710107000, 0, 0, 0, 0)`)
+		mustExec(t, db, `INSERT INTO SLEEP_SESSION VALUES (1710108000, 1710284401, 0, 0, 0, 0)`)
+	})
+	records, err := parseGBSleepSessions(db)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("expected invalid sessions to be skipped, got %d", len(records))
+	}
+}
+
+func TestParseGadgetbridge_DoesNotInferLowIntensityAsSleep(t *testing.T) {
+	db := createTestDBConn(t, func(db *sql.DB) {
+		mustExec(t, db, `CREATE TABLE MI_BAND_ACTIVITY_SAMPLE (
+			TIMESTAMP INTEGER,
+			RAW_INTENSITY INTEGER,
+			RAW_KIND INTEGER
+		)`)
+		baseTS := int64(1710108000)
+		for i := range 120 {
+			mustExec(t, db, `INSERT INTO MI_BAND_ACTIVITY_SAMPLE VALUES (?, 5, 1)`, baseTS+int64(i*60))
+		}
+	})
+	records, err := parseGBActivitySamples(db)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("expected no sleep from low-intensity activity, got %d records", len(records))
 	}
 }
 
@@ -697,11 +827,12 @@ func TestFetchFitbitSleep(t *testing.T) {
 	response := fitbitSleepResponse{
 		Sleep: []fitbitSleepLog{
 			{
-				DateOfSleep: "2024-03-11",
-				StartTime:   "2024-03-10T23:15:00.000",
-				EndTime:     "2024-03-11T06:45:00.000",
-				Duration:    27000000,
-				IsMainSleep: true,
+				DateOfSleep:   "2024-03-11",
+				StartTime:     "2024-03-10T23:15:00.000",
+				EndTime:       "2024-03-11T06:45:00.000",
+				Duration:      27000000,
+				MinutesAsleep: 425,
+				IsMainSleep:   true,
 				Levels: fitbitSleepLevel{
 					Summary: map[string]fitbitStageSummary{
 						"deep":  {Minutes: 85},
@@ -755,8 +886,11 @@ func TestFetchFitbitSleep(t *testing.T) {
 	if rec.AwakeMinutes != 25 {
 		t.Errorf("awake: got %d, want 25", rec.AwakeMinutes)
 	}
-	if rec.DurationMinutes != 450 {
-		t.Errorf("duration: got %d, want 450", rec.DurationMinutes)
+	if rec.DurationMinutes != 425 {
+		t.Errorf("duration: got %d, want 425", rec.DurationMinutes)
+	}
+	if got := rec.Date.Format("2006-01-02"); got != "2024-03-10" {
+		t.Errorf("night date: got %s, want 2024-03-10", got)
 	}
 	// Fitbit times are local; with EST (UTC-5 in March, but 2024-03-10 is
 	// after spring-forward so EDT = UTC-4). 23:15 EDT = 03:15 UTC next day.
@@ -795,8 +929,38 @@ func TestFetchFitbitSleep_NonMainSleep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(records) != 0 {
-		t.Errorf("expected 0 records (non-main sleep filtered), got %d", len(records))
+	if len(records) != 1 {
+		t.Fatalf("expected non-main sleep to be imported as a nap, got %d records", len(records))
+	}
+	if !records[0].IsNap {
+		t.Error("expected non-main Fitbit sleep to be marked as a nap")
+	}
+}
+
+func TestParseFitbitSleepLogs_TimeFormatsAndInvalidIntervals(t *testing.T) {
+	logs := []fitbitSleepLog{
+		{
+			DateOfSleep:   "2024-03-11",
+			StartTime:     "2024-03-10T23:00:00",
+			EndTime:       "2024-03-11T07:00:00",
+			Duration:      int64(8 * time.Hour / time.Millisecond),
+			MinutesAsleep: 460,
+			IsMainSleep:   true,
+		},
+		{
+			DateOfSleep: "2024-03-11",
+			StartTime:   "2024-03-11T07:00:00Z",
+			EndTime:     "2024-03-10T23:00:00Z",
+			Duration:    int64(8 * time.Hour / time.Millisecond),
+			IsMainSleep: true,
+		},
+	}
+	records := parseFitbitSleepLogs(logs, time.UTC)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 valid record, got %d", len(records))
+	}
+	if records[0].DurationMinutes != 460 {
+		t.Errorf("duration: got %d, want 460", records[0].DurationMinutes)
 	}
 }
 
@@ -1060,8 +1224,11 @@ func TestFetchFitbitSleepRange(t *testing.T) {
 	}
 
 	// Verify both records parsed
-	if records[0].DurationMinutes != 480 { // 8h
-		t.Errorf("record 0 duration: got %d, want 480", records[0].DurationMinutes)
+	// This interval crosses the spring-forward boundary: 23:00 to 07:00 is
+	// seven elapsed hours, so an inconsistent eight-hour API duration is
+	// capped to the actual interval.
+	if records[0].DurationMinutes != 420 {
+		t.Errorf("record 0 duration: got %d, want 420", records[0].DurationMinutes)
 	}
 	if records[1].DurationMinutes != 420 { // 7h
 		t.Errorf("record 1 duration: got %d, want 420", records[1].DurationMinutes)

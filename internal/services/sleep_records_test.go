@@ -2,6 +2,7 @@ package services
 
 import (
 	"testing"
+	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -49,12 +50,33 @@ func TestOverlappingPeriodsAreMerged(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("expected 1 merged record, got %d", len(records))
 	}
-	// Union: 23:00 - 07:00 = 480 min
-	if records[0].DurationMinutes != 480 {
-		t.Errorf("duration: got %d, want 480", records[0].DurationMinutes)
+	// Imported stage data is preferred to the overlapping manual time-in-bed
+	// span: 85 deep + 95 REM + 195 light = 375 minutes asleep.
+	if records[0].DurationMinutes != 375 {
+		t.Errorf("duration: got %d, want 375", records[0].DurationMinutes)
 	}
 	if len(periods) != 1 {
 		t.Fatalf("expected 1 period, got %d", len(periods))
+	}
+}
+
+func TestImportedDurationWinsOverManualTimeInBed(t *testing.T) {
+	c := newSleepCollection()
+	manual := makeRecord(c, "manual",
+		"2024-03-15T23:00:00.000Z", "2024-03-16T07:00:00.000Z",
+		[4]int{0, 0, 0, 0})
+	manual.Set("duration_minutes", 480)
+	fitbit := makeRecord(c, "fitbit",
+		"2024-03-15T23:00:00.000Z", "2024-03-16T07:00:00.000Z",
+		[4]int{85, 95, 195, 25})
+	fitbit.Set("duration_minutes", 425)
+
+	records, _ := ConvertSleepRecords([]*core.Record{manual, fitbit})
+	if len(records) != 1 {
+		t.Fatalf("expected 1 merged record, got %d", len(records))
+	}
+	if records[0].DurationMinutes != 425 {
+		t.Errorf("duration: got %d, want measured 425", records[0].DurationMinutes)
 	}
 }
 
@@ -117,6 +139,26 @@ func TestSingleRecord(t *testing.T) {
 	}
 }
 
+func TestAfterMidnightSleepUsesPreviousNightDate(t *testing.T) {
+	c := newSleepCollection()
+	r := makeRecord(c, "manual",
+		"2024-03-16T06:00:00.000Z", "2024-03-16T13:00:00.000Z",
+		[4]int{0, 0, 0, 0})
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	records, _ := ConvertSleepRecords([]*core.Record{r}, loc)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	got := records[0].Date.In(loc).Format("2006-01-02")
+	if got != "2024-03-15" {
+		t.Errorf("night date: got %s, want 2024-03-15", got)
+	}
+}
+
 func TestThreeOverlappingRecords_ChainMerge(t *testing.T) {
 	// A-B overlap, B-C overlap, but A-C might not directly overlap.
 	// The merge should chain: A∪B, then (A∪B)∪C.
@@ -129,9 +171,10 @@ func TestThreeOverlappingRecords_ChainMerge(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("expected 1 merged record from 3 overlapping, got %d", len(records))
 	}
-	// Union: 23:00 - 08:00 = 540 min (9h).
-	if records[0].DurationMinutes != 540 {
-		t.Errorf("duration: got %d, want 540", records[0].DurationMinutes)
+	// Imported records win over manual overlap; choose the more complete
+	// measured duration (A: 280 min, C: 130 min).
+	if records[0].DurationMinutes != 280 {
+		t.Errorf("duration: got %d, want 280", records[0].DurationMinutes)
 	}
 	if len(periods) != 1 {
 		t.Fatalf("expected 1 period, got %d", len(periods))

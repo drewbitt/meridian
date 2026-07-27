@@ -25,7 +25,7 @@ func loadUserRecords(app core.App, userID string) (records []*core.Record, setti
 		settings = nil // ensure nil on error
 	}
 
-	fourteenDaysAgo := time.Now().In(loc).AddDate(0, 0, -14).Format("2006-01-02 00:00:00")
+	fourteenDaysAgo := PocketBaseDate(time.Now().In(loc).AddDate(0, 0, -14))
 	records, err = app.FindRecordsByFilter(
 		"sleep_records",
 		"user = {:user} && date >= {:since}",
@@ -51,9 +51,9 @@ func ComputeUserDebt(app core.App, userID string) engine.SleepDebt {
 
 // ComputeUserSchedule loads sleep records and settings for a user, then
 // computes the energy schedule, sleep debt, and wake time.
-// Returns the classified schedule, the raw prediction points (before zone
-// classification), and the sleep debt. Raw points are stored for caching;
-// zones are re-derived on load.
+// Returns the classified schedule, its classified prediction points for
+// caching, and the sleep debt. Persisting classified points preserves
+// nap-recovery zones when a cached schedule is loaded without sleep periods.
 func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine.EnergyPoint, engine.SleepDebt, error) {
 	records, settings, sleepNeed, loc := loadUserRecords(app, userID)
 	if records == nil {
@@ -67,6 +67,15 @@ func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine
 
 	// Determine morning wake (stable — naps don't affect it).
 	morningWake := DetermineMorningWake(periods, now, loc)
+	if len(engineRecords) == 0 {
+		// Do not present a model-generated forecast as personalized when the
+		// user has not supplied any sleep data. Keep a valid wake time so the
+		// daily job can still store/dedupe its insufficient-data warning.
+		return engine.Schedule{
+			WakeTime:    morningWake,
+			MorningWake: morningWake,
+		}, nil, debt, nil
+	}
 
 	// Build params with chronotype and debt adjustments.
 	params := engine.DefaultParams()
@@ -118,7 +127,7 @@ func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine
 	schedule.Sunrise = solar.Sunrise.In(loc)
 	schedule.Sunset = solar.Sunset.In(loc)
 
-	return schedule, points, debt, nil
+	return schedule, schedule.Points, debt, nil
 }
 
 // DetermineMorningWake finds the end time of the main (non-nap) sleep period

@@ -23,20 +23,11 @@ func UpdateUserSchedule(app core.App, userID string) error {
 
 // RunMorningJob computes and stores the energy schedule for a user,
 // and dispatches scheduled notifications if enabled.
-// It is idempotent per day — returns early if a schedule already exists for today.
+// Notification delivery is idempotent per day even when Fitbit sync or a
+// manual entry already created today's schedule.
 func RunMorningJob(app core.App, userID string) error {
 	loc := UserLocation(app, userID)
-	today := time.Now().In(loc).Format("2006-01-02")
-
-	// Dedupe: only run once per user per day (prevents duplicate notifications
-	// when the cron fires multiple times within the morning hour).
-	existing, _ := app.FindFirstRecordByFilter("energy_schedules",
-		"user = {:user} && date = {:date}",
-		map[string]any{"user": userID, "date": today},
-	)
-	if existing != nil {
-		return nil
-	}
+	today := PocketBaseDate(time.Now().In(loc))
 
 	settings, err := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
 	if err != nil {
@@ -49,7 +40,19 @@ func RunMorningJob(app core.App, userID string) error {
 	}
 
 	if err := storeSchedule(app, userID, schedule.MorningWake, rawPoints); err != nil {
-		slog.Error("failed to store schedule", "user_id", userID, "error", err)
+		return fmt.Errorf("store schedule: %w", err)
+	}
+
+	schedRec, err := app.FindFirstRecordByFilter("energy_schedules",
+		"user = {:user} && date = {:date}",
+		map[string]any{"user": userID, "date": today},
+	)
+	if err != nil {
+		return fmt.Errorf("reload schedule: %w", err)
+	}
+	sent := loadSentKeys(schedRec)
+	if sent["morning_summary"] {
+		return nil
 	}
 
 	if settings.GetBool("notifications_enabled") && settings.GetString("ntfy_topic") != "" {
@@ -97,6 +100,11 @@ func RunMorningJob(app core.App, userID string) error {
 			[]string{"sunny", "battery"},
 		)); err != nil {
 			slog.Error("failed morning notification", "user_id", userID, "error", err)
+			return nil
+		}
+		sent["morning_summary"] = true
+		if err := saveSentKeys(app, schedRec, sent); err != nil {
+			return fmt.Errorf("save morning notification state: %w", err)
 		}
 		// Future notifications (caffeine, melatonin, nap) are handled by
 		// DispatchUpcomingNotifications on a short-horizon cycle, not here.
@@ -114,7 +122,7 @@ func storeSchedule(app core.App, userID string, wakeTime time.Time, rawPoints []
 	}
 
 	loc := UserLocation(app, userID)
-	today := time.Now().In(loc).Format("2006-01-02")
+	today := PocketBaseDate(time.Now().In(loc))
 
 	existing, err := app.FindFirstRecordByFilter("energy_schedules",
 		"user = {:user} && date = {:date}",
@@ -166,7 +174,7 @@ func DispatchUpcomingNotifications(app core.App, userID string, horizon time.Dur
 	}
 
 	loc := UserLocation(app, userID)
-	today := time.Now().In(loc).Format("2006-01-02")
+	today := PocketBaseDate(time.Now().In(loc))
 	schedRec, err := app.FindFirstRecordByFilter("energy_schedules",
 		"user = {:user} && date = {:date}",
 		map[string]any{"user": userID, "date": today},
@@ -296,7 +304,9 @@ func DispatchUpcomingNotifications(app core.App, userID string, horizon time.Dur
 		for _, k := range newlySent {
 			sent[k] = true
 		}
-		saveSentKeys(app, schedRec, sent)
+		if err := saveSentKeys(app, schedRec, sent); err != nil {
+			return fmt.Errorf("save notification state: %w", err)
+		}
 	}
 
 	return nil
@@ -341,15 +351,13 @@ func loadSentKeys(schedRec *core.Record) map[string]bool {
 	return sent
 }
 
-func saveSentKeys(app core.App, schedRec *core.Record, sent map[string]bool) {
+func saveSentKeys(app core.App, schedRec *core.Record, sent map[string]bool) error {
 	var keys []string
 	for k := range sent {
 		keys = append(keys, k)
 	}
 	schedRec.Set("notifications_sent", keys)
-	if err := app.Save(schedRec); err != nil {
-		slog.Error("failed to save notification sent keys", "error", err)
-	}
+	return app.Save(schedRec)
 }
 
 func dashboardURL(siteURL string) string {

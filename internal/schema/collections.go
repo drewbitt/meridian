@@ -2,6 +2,8 @@
 package schema
 
 import (
+	"time"
+
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -16,7 +18,13 @@ func EnsureCollections(app core.App) error {
 	if err := ensureSettings(app); err != nil {
 		return err
 	}
-	return ensureHabits(app)
+	if err := ensureHabits(app); err != nil {
+		return err
+	}
+	if err := deduplicateEnergySchedules(app); err != nil {
+		return err
+	}
+	return deduplicateExactSleepRecords(app)
 }
 
 // upsertCollection finds an existing collection by name or creates a new one.
@@ -119,4 +127,55 @@ func ensureHabits(app core.App) error {
 		&core.BoolField{Name: "enabled"},
 	)
 	return app.Save(c)
+}
+
+func deduplicateEnergySchedules(app core.App) error {
+	records, err := app.FindAllRecords("energy_schedules")
+	if err != nil {
+		return err
+	}
+	kept := make(map[string]*core.Record)
+	for _, record := range records {
+		key := record.GetString("user") + "\x00" + record.GetDateTime("date").Time().UTC().Format(time.DateOnly)
+		existing := kept[key]
+		if existing == nil {
+			kept[key] = record
+			continue
+		}
+		// Preserve the row with the most cached/deduplication state.
+		if recordStateScore(record) > recordStateScore(existing) {
+			if err := app.Delete(existing); err != nil {
+				return err
+			}
+			kept[key] = record
+		} else if err := app.Delete(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func recordStateScore(record *core.Record) int {
+	return len(record.GetString("schedule_json")) + 10*len(record.GetString("notifications_sent"))
+}
+
+func deduplicateExactSleepRecords(app core.App) error {
+	records, err := app.FindAllRecords("sleep_records")
+	if err != nil {
+		return err
+	}
+	seen := make(map[string]struct{})
+	for _, record := range records {
+		key := record.GetString("user") + "\x00" +
+			record.GetString("source") + "\x00" +
+			record.GetDateTime("sleep_start").Time().UTC().Format(time.RFC3339Nano)
+		if _, duplicate := seen[key]; !duplicate {
+			seen[key] = struct{}{}
+			continue
+		}
+		if err := app.Delete(record); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -13,12 +13,11 @@ var errNoSleepTable = errors.New("no SLEEP_SESSION table")
 
 // Gadgetbridge activity type constants.
 const (
-	gbActivitySleep      = 2
 	gbActivityDeepSleep  = 4
 	gbActivityLightSleep = 5
-	gbActivityREMSleep   = 6
-	// Activity intensity threshold for detecting sleep from raw data.
-	gbSleepIntensityMax = 50
+	gbHuamiSleep         = 120
+	gbHuamiDeepSleep     = 121
+	gbHuamiREMSleep      = 122
 )
 
 // ParseGadgetbridge reads a Gadgetbridge SQLite export and extracts sleep records.
@@ -29,14 +28,73 @@ func ParseGadgetbridge(dbPath string) ([]SleepRecord, error) {
 	}
 	defer db.Close()
 
-	// Try the structured sleep sessions table first (newer Gadgetbridge).
-	records, err := parseGBSleepSessions(db)
+	// Prefer current, device-specific summary tables when available.
+	records, err := parseGBXiaomiSleepTimes(db)
+	if err == nil && len(records) > 0 {
+		return records, nil
+	}
+
+	// Retain compatibility with third-party/older exports that expose a
+	// generic summary table.
+	records, err = parseGBSleepSessions(db)
 	if err == nil && len(records) > 0 {
 		return records, nil
 	}
 
 	// Fall back to activity samples.
 	return parseGBActivitySamples(db)
+}
+
+func parseGBXiaomiSleepTimes(db *sql.DB) ([]SleepRecord, error) {
+	rows, err := db.Query(`
+		SELECT
+			TIMESTAMP,
+			WAKEUP_TIME,
+			COALESCE(TOTAL_DURATION, 0),
+			COALESCE(DEEP_SLEEP_DURATION, 0),
+			COALESCE(REM_SLEEP_DURATION, 0),
+			COALESCE(LIGHT_SLEEP_DURATION, 0),
+			COALESCE(AWAKE_DURATION, 0)
+		FROM XIAOMI_SLEEP_TIME_SAMPLE
+		ORDER BY TIMESTAMP
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []SleepRecord
+	for rows.Next() {
+		var startMS, endMS int64
+		var total, deep, rem, light, awake int
+		if err := rows.Scan(&startMS, &endMS, &total, &deep, &rem, &light, &awake); err != nil {
+			continue
+		}
+		start := time.UnixMilli(startMS)
+		end := time.UnixMilli(endMS)
+		if !validSleepInterval(start, end) {
+			continue
+		}
+		if total <= 0 {
+			total = int(end.Sub(start).Minutes())
+		}
+		records = append(records, SleepRecord{
+			Date:            SleepNightDate(start),
+			SleepStart:      start,
+			SleepEnd:        end,
+			Source:          SourceGadgetbridge,
+			DurationMinutes: total,
+			DeepMinutes:     max(deep, 0),
+			REMMinutes:      max(rem, 0),
+			LightMinutes:    max(light, 0),
+			AwakeMinutes:    max(awake, 0),
+			IsNap:           LikelyNap(start, end),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate Xiaomi sleep sessions: %w", err)
+	}
+	return records, nil
 }
 
 func parseGBSleepSessions(db *sql.DB) ([]SleepRecord, error) {
@@ -72,8 +130,11 @@ func parseGBSleepSessions(db *sql.DB) ([]SleepRecord, error) {
 
 		start := time.Unix(startTS, 0)
 		end := time.Unix(endTS, 0)
+		if !validSleepInterval(start, end) {
+			continue
+		}
 		records = append(records, SleepRecord{
-			Date:            DateOnly(start),
+			Date:            SleepNightDate(start),
 			SleepStart:      start,
 			SleepEnd:        end,
 			Source:          SourceGadgetbridge,
@@ -82,6 +143,7 @@ func parseGBSleepSessions(db *sql.DB) ([]SleepRecord, error) {
 			REMMinutes:      rem,
 			LightMinutes:    light,
 			AwakeMinutes:    awake,
+			IsNap:           LikelyNap(start, end),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -92,21 +154,32 @@ func parseGBSleepSessions(db *sql.DB) ([]SleepRecord, error) {
 }
 
 func parseGBActivitySamples(db *sql.DB) ([]SleepRecord, error) {
-	// Query raw activity samples and detect sleep periods by low intensity.
+	// Legacy Mi Band tables use raw kinds 4 (deep) and 5 (light). Do not
+	// infer sleep from low intensity: that also includes sedentary daytime
+	// samples and can create all-day false sleep periods.
 	rows, err := db.Query(`
 		SELECT TIMESTAMP, RAW_INTENSITY, RAW_KIND
 		FROM MI_BAND_ACTIVITY_SAMPLE
-		WHERE RAW_KIND IN (2, 4, 5, 6) OR RAW_INTENSITY <= ?
+		WHERE RAW_KIND IN (?, ?)
 		ORDER BY TIMESTAMP
-	`, gbSleepIntensityMax)
+	`, gbActivityDeepSleep, gbActivityLightSleep)
 	if err != nil {
-		// Try generic table name.
+		// Huami Extended stores sleep as kind 120. Gadgetbridge derives deep
+		// and REM in memory from the corresponding confidence columns, so
+		// reproduce that normalization while reading the exported database.
 		rows, err = db.Query(`
-			SELECT TIMESTAMP, RAW_INTENSITY, RAW_KIND
+			SELECT
+				TIMESTAMP,
+				RAW_INTENSITY,
+				CASE
+					WHEN (REM_SLEEP & 127) > 55 THEN ?
+					WHEN (DEEP_SLEEP & 127) > 42 THEN ?
+					ELSE RAW_KIND
+				END
 			FROM HUAMI_EXTENDED_ACTIVITY_SAMPLE
-			WHERE RAW_KIND IN (2, 4, 5, 6) OR RAW_INTENSITY <= ?
+			WHERE RAW_KIND = ?
 			ORDER BY TIMESTAMP
-		`, gbSleepIntensityMax)
+		`, gbHuamiREMSleep, gbHuamiDeepSleep, gbHuamiSleep)
 		if err != nil {
 			return nil, fmt.Errorf("query activity samples: %w", err)
 		}
@@ -143,9 +216,11 @@ func parseGBActivitySamples(db *sql.DB) ([]SleepRecord, error) {
 	switch samples[0].kind {
 	case gbActivityDeepSleep:
 		deepMins++
-	case gbActivityREMSleep:
+	case gbHuamiDeepSleep:
+		deepMins++
+	case gbHuamiREMSleep:
 		remMins++
-	case gbActivityLightSleep, gbActivitySleep:
+	case gbActivityLightSleep, gbHuamiSleep:
 		lightMins++
 	}
 
@@ -156,7 +231,7 @@ func parseGBActivitySamples(db *sql.DB) ([]SleepRecord, error) {
 		start := time.Unix(periodStart, 0)
 		end := time.Unix(periodEnd, 0)
 		records = append(records, SleepRecord{
-			Date:            DateOnly(start),
+			Date:            SleepNightDate(start),
 			SleepStart:      start,
 			SleepEnd:        end,
 			Source:          SourceGadgetbridge,
@@ -164,6 +239,7 @@ func parseGBActivitySamples(db *sql.DB) ([]SleepRecord, error) {
 			DeepMinutes:     deepMins,
 			REMMinutes:      remMins,
 			LightMinutes:    lightMins,
+			IsNap:           LikelyNap(start, end),
 		})
 		deepMins, remMins, lightMins = 0, 0, 0
 	}
@@ -181,13 +257,19 @@ func parseGBActivitySamples(db *sql.DB) ([]SleepRecord, error) {
 		switch s.kind {
 		case gbActivityDeepSleep:
 			deepMins++
-		case gbActivityREMSleep:
+		case gbHuamiDeepSleep:
+			deepMins++
+		case gbHuamiREMSleep:
 			remMins++
-		case gbActivityLightSleep, gbActivitySleep:
+		case gbActivityLightSleep, gbHuamiSleep:
 			lightMins++
 		}
 	}
 	flush()
 
 	return records, nil
+}
+
+func validSleepInterval(start, end time.Time) bool {
+	return end.After(start) && end.Sub(start) <= 24*time.Hour
 }

@@ -15,6 +15,7 @@ type SleepRecord struct {
 	REMMinutes      int       `json:"rem_minutes,omitempty"`
 	LightMinutes    int       `json:"light_minutes,omitempty"`
 	AwakeMinutes    int       `json:"awake_minutes,omitempty"`
+	IsNap           bool      `json:"is_nap,omitempty"`
 }
 
 // Source identifiers for sleep records.
@@ -46,4 +47,11 @@ func SleepNightDate(t time.Time) time.Time {
 		d = d.AddDate(0, 0, -1)
 	}
 	return d
+}
+
+// LikelyNap applies Meridian's fallback nap heuristic in the timestamp's own
+// timezone. Importers should prefer an explicit source-provided classification
+// when one is available.
+func LikelyNap(start, end time.Time) bool {
+	return start.Hour() >= 10 && end.After(start) && end.Sub(start) < 2*time.Hour
 }

@@ -78,12 +78,13 @@ type fitbitSleepMeta struct {
 }
 
 type fitbitSleepLog struct {
-	DateOfSleep string           `json:"dateOfSleep"`
-	StartTime   string           `json:"startTime"`
-	EndTime     string           `json:"endTime"`
-	Duration    int64            `json:"duration"` // milliseconds
-	Levels      fitbitSleepLevel `json:"levels"`
-	IsMainSleep bool             `json:"isMainSleep"`
+	DateOfSleep   string           `json:"dateOfSleep"`
+	StartTime     string           `json:"startTime"`
+	EndTime       string           `json:"endTime"`
+	Duration      int64            `json:"duration"` // milliseconds
+	MinutesAsleep int              `json:"minutesAsleep"`
+	Levels        fitbitSleepLevel `json:"levels"`
+	IsMainSleep   bool             `json:"isMainSleep"`
 }
 
 type fitbitSleepLevel struct {
@@ -180,31 +181,43 @@ func fetchFitbitSleepURL(client *http.Client, url string, loc *time.Location) ([
 }
 
 func parseFitbitSleepLogs(logs []fitbitSleepLog, loc *time.Location) []SleepRecord {
+	if loc == nil {
+		loc = time.UTC
+	}
 	var records []SleepRecord
 	for _, sl := range logs {
-		if !sl.IsMainSleep {
+		start, err := parseFitbitTime(sl.StartTime, loc)
+		if err != nil {
+			continue
+		}
+		end, err := parseFitbitTime(sl.EndTime, loc)
+		if err != nil {
+			continue
+		}
+		if !validSleepInterval(start, end) {
+			continue
+		}
+		if _, err := time.ParseInLocation("2006-01-02", sl.DateOfSleep, loc); err != nil {
 			continue
 		}
 
-		start, err := time.ParseInLocation("2006-01-02T15:04:05.000", sl.StartTime, loc)
-		if err != nil {
-			continue
+		durationMinutes := sl.MinutesAsleep
+		spanMinutes := int(end.Sub(start).Minutes())
+		if durationMinutes <= 0 || durationMinutes > spanMinutes {
+			durationMinutes = int(sl.Duration / 60000)
 		}
-		end, err := time.ParseInLocation("2006-01-02T15:04:05.000", sl.EndTime, loc)
-		if err != nil {
-			continue
+		if durationMinutes <= 0 || durationMinutes > spanMinutes {
+			durationMinutes = spanMinutes
 		}
-		sleepDate, err := time.ParseInLocation("2006-01-02", sl.DateOfSleep, loc)
-		if err != nil {
-			continue
-		}
-
 		rec := SleepRecord{
-			Date:            sleepDate,
+			// Fitbit's dateOfSleep is the day the log ends; Meridian stores
+			// the night the sleep began so all importers agree.
+			Date:            SleepNightDate(start),
 			SleepStart:      start,
 			SleepEnd:        end,
 			Source:          SourceFitbit,
-			DurationMinutes: int(sl.Duration / 60000),
+			DurationMinutes: durationMinutes,
+			IsNap:           !sl.IsMainSleep,
 		}
 
 		if summary := sl.Levels.Summary; summary != nil {
@@ -225,6 +238,18 @@ func parseFitbitSleepLogs(logs []fitbitSleepLog, loc *time.Location) []SleepReco
 		records = append(records, rec)
 	}
 	return records
+}
+
+func parseFitbitTime(value string, loc *time.Location) (time.Time, error) {
+	for _, layout := range []string{
+		"2006-01-02T15:04:05.000",
+		"2006-01-02T15:04:05",
+	} {
+		if parsed, err := time.ParseInLocation(layout, value, loc); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Parse(time.RFC3339, value)
 }
 
 // RefreshFitbitToken refreshes an expired Fitbit OAuth2 token.

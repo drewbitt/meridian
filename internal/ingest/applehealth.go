@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -107,6 +108,7 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 		totalMins  int
 	}
 	nights := make(map[string]*nightData) // keyed by date string
+	seenSleepRecords := make(map[string]struct{})
 
 	for {
 		token, err := decoder.Token()
@@ -143,6 +145,11 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 		if rec.Type != ahSleepAnalysis {
 			continue
 		}
+		identity := rec.Value + "\x00" + rec.StartDate + "\x00" + rec.EndDate
+		if _, duplicate := seenSleepRecords[identity]; duplicate {
+			continue
+		}
+		seenSleepRecords[identity] = struct{}{}
 
 		start, err := parseAHTime(rec.StartDate)
 		if err != nil {
@@ -211,8 +218,12 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 			REMMinutes:      nd.remMins,
 			LightMinutes:    nd.lightMins,
 			AwakeMinutes:    nd.awakeMins,
+			IsNap:           LikelyNap(nd.sleepStart, nd.sleepEnd),
 		})
 	}
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].SleepStart.Before(records[j].SleepStart)
+	})
 
 	return records, nil
 }

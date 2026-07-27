@@ -33,7 +33,7 @@ func registerDashboardRoutes(se *core.ServeEvent, app core.App) {
 
 func loadTodayData(app core.App, userID string) (engine.Schedule, engine.SleepDebt, error) {
 	loc := services.UserLocation(app, userID)
-	today := time.Now().In(loc).Format("2006-01-02")
+	today := services.PocketBaseDate(time.Now().In(loc))
 
 	// Try loading cached schedule.
 	scheduleRec, err := app.FindFirstRecordByFilter("energy_schedules",
@@ -50,6 +50,14 @@ func loadTodayData(app core.App, userID string) (engine.Schedule, engine.SleepDe
 		if err == nil && len(points) > 0 {
 			wakeTime := scheduleRec.GetDateTime("wake_time").Time()
 			schedule := engine.ClassifyZones(points, wakeTime)
+			// Solar anchors are derived rather than cached. Restore them so
+			// sunrise/sunset habits resolve on every request, not only on the
+			// first uncached computation.
+			settings, _ := app.FindFirstRecordByFilter("settings", "user = {:user}", map[string]any{"user": userID})
+			lat, lng, _ := services.CoordinatesFromSettings(settings)
+			solar := services.GetSolarTimes(lat, lng, time.Now().In(loc), false)
+			schedule.Sunrise = solar.Sunrise.In(loc)
+			schedule.Sunset = solar.Sunset.In(loc)
 			// Still need fresh debt calculation (debt isn't cached).
 			debt := services.ComputeUserDebt(app, userID)
 			return schedule, debt, nil

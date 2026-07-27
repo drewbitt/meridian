@@ -132,7 +132,7 @@ func registerAPIRoutes(se *core.ServeEvent, app core.App) {
 
 		loc := services.UserLocation(app, userID)
 		days := 14
-		since := time.Now().In(loc).AddDate(0, 0, -days).Format("2006-01-02 00:00:00")
+		since := services.PocketBaseDate(time.Now().In(loc).AddDate(0, 0, -days))
 		records, err := app.FindRecordsByFilter(
 			"sleep_records",
 			"user = {:user} && date >= {:since}",
@@ -152,6 +152,7 @@ func registerAPIRoutes(se *core.ServeEvent, app core.App) {
 				"sleep_end":        r.GetDateTime("sleep_end").Time(),
 				"source":           r.GetString("source"),
 				"duration_minutes": r.GetInt("duration_minutes"),
+				"is_nap":           r.GetBool("is_nap"),
 			})
 		}
 

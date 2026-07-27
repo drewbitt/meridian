@@ -5,15 +5,19 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// UpsertSleepRecord finds or creates a sleep record for the given user, date,
-// and source, then updates all fields from the ingest record. Returns the
-// saved PocketBase record.
+// UpsertSleepRecord finds or creates a sleep record, then updates all fields
+// from the ingest record. Manual entries replace the same source/night;
+// imported records use their start time as an event identity so a nap cannot
+// overwrite the main sleep from the same source and day.
 func UpsertSleepRecord(app core.App, userID string, rec ingest.SleepRecord) (*core.Record, error) {
-	dateStr := rec.Date.Format("2006-01-02")
-	existing, _ := app.FindFirstRecordByFilter("sleep_records",
-		"user = {:user} && date = {:date} && source = {:source}",
-		map[string]any{"user": userID, "date": dateStr, "source": rec.Source},
-	)
+	dateStr := PocketBaseDate(rec.Date)
+	filter := "user = {:user} && date = {:date} && source = {:source}"
+	params := map[string]any{"user": userID, "date": dateStr, "source": rec.Source}
+	if rec.Source != ingest.SourceManual {
+		filter = "user = {:user} && source = {:source} && sleep_start = {:start}"
+		params = map[string]any{"user": userID, "source": rec.Source, "start": PocketBaseDateTime(rec.SleepStart)}
+	}
+	existing, _ := app.FindFirstRecordByFilter("sleep_records", filter, params)
 
 	var record *core.Record
 	if existing != nil {
@@ -36,6 +40,7 @@ func UpsertSleepRecord(app core.App, userID string, rec ingest.SleepRecord) (*co
 	record.Set("rem_minutes", rec.REMMinutes)
 	record.Set("light_minutes", rec.LightMinutes)
 	record.Set("awake_minutes", rec.AwakeMinutes)
+	record.Set("is_nap", rec.IsNap)
 
 	if err := app.Save(record); err != nil {
 		return nil, err

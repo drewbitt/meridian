@@ -29,12 +29,13 @@ type healthConnectSleepStage struct {
 
 // Health Connect sleep stage constants.
 const (
-	hcStageAwake    = 1
-	hcStageSleeping = 2
-	hcStageOutOfBed = 3
-	hcStageLight    = 4
-	hcStageDeep     = 5
-	hcStageREM      = 6
+	hcStageAwake      = 1
+	hcStageSleeping   = 2
+	hcStageOutOfBed   = 3
+	hcStageLight      = 4
+	hcStageDeep       = 5
+	hcStageREM        = 6
+	hcStageAwakeInBed = 7
 )
 
 // ParseHealthConnect parses an Android Health Connect JSON export.
@@ -64,9 +65,14 @@ func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 			SleepEnd:        end,
 			Source:          SourceHealthConnect,
 			DurationMinutes: int(end.Sub(start).Minutes()),
+			IsNap:           LikelyNap(start, end),
 		}
 
-		// Aggregate stage durations.
+		// Aggregate stage durations. Health Connect requires stages to be
+		// positive, sequential, non-overlapping, and contained by the parent
+		// session. Treat malformed third-party exports defensively so a bad
+		// interval cannot create negative or inflated sleep-stage totals.
+		lastStageEnd := start
 		for _, stage := range session.Stages {
 			stageStart, err := parseHCTime(stage.StartTime)
 			if err != nil {
@@ -76,7 +82,15 @@ func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 			if err != nil {
 				continue
 			}
+			if stageStart.Before(start) || stageEnd.After(end) ||
+				stageStart.Before(lastStageEnd) || !stageEnd.After(stageStart) {
+				continue
+			}
 			mins := int(stageEnd.Sub(stageStart).Minutes())
+			if mins <= 0 {
+				continue
+			}
+			lastStageEnd = stageEnd
 
 			switch stage.Stage {
 			case hcStageDeep:
@@ -85,9 +99,15 @@ func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 				rec.REMMinutes += mins
 			case hcStageLight, hcStageSleeping:
 				rec.LightMinutes += mins
-			case hcStageAwake, hcStageOutOfBed:
+			case hcStageAwake, hcStageOutOfBed, hcStageAwakeInBed:
 				rec.AwakeMinutes += mins
 			}
+		}
+		// A session spans time in bed and can include awake/out-of-bed stages.
+		// When classified sleep stages are available, use their total for
+		// sleep debt rather than charging the entire session as asleep.
+		if asleep := rec.DeepMinutes + rec.REMMinutes + rec.LightMinutes; asleep > 0 {
+			rec.DurationMinutes = asleep
 		}
 
 		records = append(records, rec)

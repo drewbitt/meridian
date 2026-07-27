@@ -14,7 +14,10 @@ import (
 	"golang.org/x/oauth2"
 )
 
-var errFitbitCredentials = errors.New("fitbit credentials missing")
+var (
+	errFitbitCredentials = errors.New("fitbit credentials missing")
+	errFitbitSaveRecords = errors.New("save fitbit records")
+)
 
 // Per-user mutex to prevent concurrent token refreshes from invalidating
 // each other (Fitbit revokes old refresh tokens on use).
@@ -111,8 +114,8 @@ func SyncFitbitUser(app core.App, s *core.Record, start, end time.Time) error {
 	// Fetch user's timezone from Fitbit profile.
 	loc, err := ingest.FetchFitbitTimezone(ctx, cfg, token)
 	if err != nil {
-		slog.Warn("could not fetch fitbit timezone, falling back to UTC", "user_id", userID, "error", err)
-		loc = time.UTC
+		loc = LocationFromSettings(s)
+		slog.Warn("could not fetch fitbit timezone, using configured timezone", "user_id", userID, "timezone", loc.String(), "error", err)
 	}
 
 	// Auto-populate the user's timezone setting from Fitbit profile if not yet configured.
@@ -149,10 +152,15 @@ func SyncFitbitUser(app core.App, s *core.Record, start, end time.Time) error {
 		return fmt.Errorf("fetch sleep: %w", err)
 	}
 
+	saveFailures := 0
 	for _, rec := range records {
 		if _, err := UpsertSleepRecord(app, userID, rec); err != nil {
 			slog.Error("failed to save fitbit record", "user_id", userID, "error", err)
+			saveFailures++
 		}
+	}
+	if saveFailures > 0 {
+		return fmt.Errorf("%w: %d of %d failed", errFitbitSaveRecords, saveFailures, len(records))
 	}
 
 	// Update last sync timestamp.
