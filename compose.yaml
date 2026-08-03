@@ -5,6 +5,8 @@ services:
       - "${MERIDIAN_PORT:-8090}:8090"
     environment:
       ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-first-user}"
+      GOOGLE_HEALTH_CLIENT_ID: "${GOOGLE_HEALTH_CLIENT_ID:-}"
+      GOOGLE_HEALTH_CLIENT_SECRET: "${GOOGLE_HEALTH_CLIENT_SECRET:-}"
       TZ: "${TZ:-UTC}"
     volumes:
       - meridian-data:/pb_data

@@ -82,6 +82,18 @@ func ensureEnergySchedules(app core.App) error {
 
 func ensureSettings(app core.App) error {
 	c := upsertCollection(app, "settings")
+	for _, legacyField := range []string{
+		"fitbit_client_id",
+		"fitbit_client_secret",
+		"fitbit_access_token",
+		"fitbit_refresh_token",
+		"fitbit_token_expiry",
+		"fitbit_last_sync",
+		"fitbit_last_attempt",
+		"fitbit_sleep_pending",
+	} {
+		c.Fields.RemoveByName(legacyField)
+	}
 	authRule := "@request.auth.id != '' && user = @request.auth.id"
 	c.ListRule = &authRule
 	c.ViewRule = &authRule
@@ -96,14 +108,14 @@ func ensureSettings(app core.App) error {
 		&core.TextField{Name: "ntfy_access_token"},
 		&core.TextField{Name: "site_url"},
 		&core.TextField{Name: "timezone"},
-		&core.TextField{Name: "fitbit_client_id"},
-		&core.TextField{Name: "fitbit_client_secret"},
-		&core.TextField{Name: "fitbit_access_token"},
-		&core.TextField{Name: "fitbit_refresh_token"},
-		&core.DateField{Name: "fitbit_token_expiry"},
-		&core.DateField{Name: "fitbit_last_sync"},
-		&core.DateField{Name: "fitbit_last_attempt"},
-		&core.BoolField{Name: "fitbit_sleep_pending"},
+		&core.TextField{Name: "google_health_client_id"},
+		&core.TextField{Name: "google_health_client_secret", Hidden: true},
+		&core.TextField{Name: "google_health_access_token", Hidden: true},
+		&core.TextField{Name: "google_health_refresh_token", Hidden: true},
+		&core.DateField{Name: "google_health_token_expiry"},
+		&core.DateField{Name: "google_health_last_sync"},
+		&core.DateField{Name: "google_health_last_attempt"},
+		&core.BoolField{Name: "google_health_sleep_pending"},
 		&core.BoolField{Name: "notifications_enabled"},
 		&core.TextField{Name: "location_name"},
 		&core.NumberField{Name: "latitude"},

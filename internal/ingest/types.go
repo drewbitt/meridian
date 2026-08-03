@@ -22,7 +22,7 @@ type SleepRecord struct {
 // Source identifiers for sleep records.
 const (
 	SourceManual        = "manual"
-	SourceFitbit        = "fitbit"
+	SourceGoogleHealth  = "google_health"
 	SourceHealthConnect = "healthconnect"
 	SourceAppleHealth   = "applehealth"
 	SourceGadgetbridge  = "gadgetbridge"

@@ -78,8 +78,8 @@ func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine
 		return engine.Schedule{
 			WakeTime:          morningWake,
 			MorningWake:       morningWake,
-			AwaitingSleepData: settings != nil && settings.GetString("fitbit_access_token") != "",
-			LastSync:          FitbitLastAttempt(settings),
+			AwaitingSleepData: settings != nil && settings.GetString("google_health_access_token") != "",
+			LastSync:          GoogleHealthLastAttempt(settings),
 		}, nil, debt, nil
 	}
 	if !hasRecentMainSleep {
@@ -91,8 +91,8 @@ func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine
 			MorningWake:       morningWake,
 			Confidence:        engine.ConfidenceNone,
 			ObservedNights:    debt.ObservedNights,
-			AwaitingSleepData: settings != nil && settings.GetString("fitbit_access_token") != "",
-			LastSync:          FitbitLastAttempt(settings),
+			AwaitingSleepData: settings != nil && settings.GetString("google_health_access_token") != "",
+			LastSync:          GoogleHealthLastAttempt(settings),
 		}, nil, debt, nil
 	}
 
@@ -116,7 +116,7 @@ func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine
 			ConfidenceReason: "sleep timing is outside the static model's supported phase range",
 			ObservedNights:   debt.ObservedNights,
 			IsEstimate:       debt.IsEstimate,
-			LastSync:         FitbitLastAttempt(settings),
+			LastSync:         GoogleHealthLastAttempt(settings),
 		}, nil, debt, nil
 	}
 
@@ -169,7 +169,7 @@ func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine
 	schedule.MorningWake = localWake
 	schedule.ObservedNights = debt.ObservedNights
 	schedule.IsEstimate = debt.IsEstimate
-	schedule.LastSync = FitbitLastAttempt(settings)
+	schedule.LastSync = GoogleHealthLastAttempt(settings)
 	switch {
 	case debt.ObservedNights < 5:
 		schedule.Confidence = engine.ConfidencePreliminary
@@ -411,16 +411,16 @@ func circularHourDistance(a, b float64) float64 {
 	return math.Abs(difference)
 }
 
-// FitbitLastAttempt returns the latest Fitbit API check, falling back to the
+// GoogleHealthLastAttempt returns the latest Google Health API check, falling back to the
 // last successful sync for records created before attempt tracking existed.
-func FitbitLastAttempt(settings *core.Record) time.Time {
+func GoogleHealthLastAttempt(settings *core.Record) time.Time {
 	if settings == nil {
 		return time.Time{}
 	}
-	if attempt := settings.GetDateTime("fitbit_last_attempt").Time(); !attempt.IsZero() {
+	if attempt := settings.GetDateTime("google_health_last_attempt").Time(); !attempt.IsZero() {
 		return attempt
 	}
-	return settings.GetDateTime("fitbit_last_sync").Time()
+	return settings.GetDateTime("google_health_last_sync").Time()
 }
 
 // circularMeanAndR computes the circular mean direction and mean resultant

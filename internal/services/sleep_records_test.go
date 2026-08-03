@@ -44,11 +44,11 @@ func TestOverlappingPeriodsAreMerged(t *testing.T) {
 	manual := makeRecord(c, "manual",
 		"2024-03-15T23:00:00.000Z", "2024-03-16T07:00:00.000Z",
 		[4]int{0, 0, 0, 0})
-	fitbit := makeRecord(c, "fitbit",
+	googleHealth := makeRecord(c, "google_health",
 		"2024-03-15T23:15:00.000Z", "2024-03-16T06:45:00.000Z",
 		[4]int{85, 95, 195, 25})
 
-	records, periods := ConvertSleepRecords([]*core.Record{manual, fitbit})
+	records, periods := ConvertSleepRecords([]*core.Record{manual, googleHealth})
 	if len(records) != 1 {
 		t.Fatalf("expected 1 merged record, got %d", len(records))
 	}
@@ -68,12 +68,12 @@ func TestImportedDurationWinsOverManualTimeInBed(t *testing.T) {
 		"2024-03-15T23:00:00.000Z", "2024-03-16T07:00:00.000Z",
 		[4]int{0, 0, 0, 0})
 	manual.Set("duration_minutes", 480)
-	fitbit := makeRecord(c, "fitbit",
+	googleHealth := makeRecord(c, "google_health",
 		"2024-03-15T23:00:00.000Z", "2024-03-16T07:00:00.000Z",
 		[4]int{85, 95, 195, 25})
-	fitbit.Set("duration_minutes", 425)
+	googleHealth.Set("duration_minutes", 425)
 
-	records, _ := ConvertSleepRecords([]*core.Record{manual, fitbit})
+	records, _ := ConvertSleepRecords([]*core.Record{manual, googleHealth})
 	if len(records) != 1 {
 		t.Fatalf("expected 1 merged record, got %d", len(records))
 	}
@@ -87,13 +87,13 @@ func TestOverlapTakesBestStageData(t *testing.T) {
 	manual := makeRecord(c, "manual",
 		"2024-03-15T23:00:00.000Z", "2024-03-16T07:00:00.000Z",
 		[4]int{0, 0, 0, 0})
-	fitbit := makeRecord(c, "fitbit",
+	googleHealth := makeRecord(c, "google_health",
 		"2024-03-15T23:15:00.000Z", "2024-03-16T06:45:00.000Z",
 		[4]int{85, 95, 195, 25})
 
-	records, _ := ConvertSleepRecords([]*core.Record{fitbit, manual})
+	records, _ := ConvertSleepRecords([]*core.Record{googleHealth, manual})
 
-	// Stage data should come from the fitbit record (richer).
+	// Stage data should come from the Google Health record (richer).
 	// We can't check stage fields directly on engine.SleepRecord (it doesn't
 	// have them), but we verify the merge kept the wider boundaries.
 	r := records[0]
@@ -107,7 +107,7 @@ func TestOverlapTakesBestStageData(t *testing.T) {
 
 func TestNonOverlappingPeriodsKeptSeparate(t *testing.T) {
 	c := newSleepCollection()
-	night := makeRecord(c, "fitbit",
+	night := makeRecord(c, "google_health",
 		"2024-03-15T23:00:00.000Z", "2024-03-16T07:00:00.000Z",
 		[4]int{85, 95, 195, 25})
 	nap := makeRecord(c, "manual",
@@ -165,9 +165,9 @@ func TestThreeOverlappingRecords_ChainMerge(t *testing.T) {
 	// A-B overlap, B-C overlap, but A-C might not directly overlap.
 	// The merge should chain: A∪B, then (A∪B)∪C.
 	c := newSleepCollection()
-	a := makeRecord(c, "fitbit", "2024-03-15T23:00:00.000Z", "2024-03-16T05:00:00.000Z", [4]int{60, 70, 150, 20})
+	a := makeRecord(c, "google_health", "2024-03-15T23:00:00.000Z", "2024-03-16T05:00:00.000Z", [4]int{60, 70, 150, 20})
 	b := makeRecord(c, "manual", "2024-03-16T04:00:00.000Z", "2024-03-16T07:00:00.000Z", [4]int{0, 0, 0, 0})
-	c2 := makeRecord(c, "fitbit", "2024-03-16T06:30:00.000Z", "2024-03-16T08:00:00.000Z", [4]int{30, 40, 60, 10})
+	c2 := makeRecord(c, "google_health", "2024-03-16T06:30:00.000Z", "2024-03-16T08:00:00.000Z", [4]int{30, 40, 60, 10})
 
 	records, periods := ConvertSleepRecords([]*core.Record{a, b, c2})
 	if len(records) != 1 {
@@ -214,10 +214,10 @@ func TestEmptyInput(t *testing.T) {
 
 func TestBrokenNightIsNotSplitIntoNap(t *testing.T) {
 	c := newSleepCollection()
-	first := makeRecord(c, "fitbit",
+	first := makeRecord(c, "google_health",
 		"2026-07-26T23:00:00.000Z", "2026-07-27T03:00:00.000Z",
 		[4]int{0, 0, 240, 0})
-	second := makeRecord(c, "fitbit",
+	second := makeRecord(c, "google_health",
 		"2026-07-27T04:00:00.000Z", "2026-07-27T07:00:00.000Z",
 		[4]int{0, 0, 180, 0})
 

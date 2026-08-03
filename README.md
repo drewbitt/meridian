@@ -9,7 +9,8 @@ Meridian can:
 
 - calculate a weighted sleep-debt planning index from recent sleep
 - show a modeled high-energy period and, only when supported, a distinct dip
-- import Fitbit, Health Connect, Apple Health, and Gadgetbridge data
+- sync Fitbit and Pixel Watch sleep through Google Health
+- import Health Connect, Apple Health, and Gadgetbridge data
 - schedule personal habits around observed or modeled daily anchors
 - send confidence-gated caffeine, nap, energy, and wind-down notifications
 
@@ -26,7 +27,7 @@ curl -O https://raw.githubusercontent.com/drewbitt/meridian/main/compose.yaml
 docker compose up -d
 ```
 
-Open [http://localhost:8090](http://localhost:8090) and create your account. Meridian signs you in, detects your browser time zone, and takes you to Settings. By default, registration closes automatically after the first account.
+Open [http://127.0.0.1:8090](http://127.0.0.1:8090) and create your account. Meridian signs you in, detects your browser time zone, and takes you to Settings. By default, registration closes automatically after the first account.
 
 The compose service runs as an unprivileged user with a read-only root filesystem. Application data is kept in the `meridian-data` volume at `/pb_data`.
 
@@ -52,6 +53,8 @@ The `beta` tag follows the supported prerelease channel. Pin a numbered tag when
 | Variable | Default | Purpose |
 |---|---|---|
 | `ALLOW_REGISTRATION` | `first-user` | Creates one bootstrap account and then closes automatically. Set `true` for intentional multi-user signup or `false` to disable signup completely. |
+| `GOOGLE_HEALTH_CLIENT_ID` | empty | Optional instance-wide Google OAuth Web client ID. Set it together with `GOOGLE_HEALTH_CLIENT_SECRET` so users only need to select Connect. |
+| `GOOGLE_HEALTH_CLIENT_SECRET` | empty | Optional instance-wide Google OAuth Web client secret. Prefer `.env` over storing the OAuth client in each user's settings. |
 | `TZ` | `UTC` | Server time zone used when a user has not saved one, such as `America/New_York`. |
 | `MERIDIAN_PORT` | `8090` | Host port used by `compose.yaml`. This is not read by the application itself. |
 | `MERIDIAN_TAG` | `beta` | Image channel or immutable version used by `compose.yaml`. |
@@ -61,7 +64,7 @@ User-specific options live on the Settings page:
 - time zone and sleep need
 - location for sunrise and sunset calculations
 - ntfy server, topic, and access token
-- Fitbit OAuth credentials
+- Google Health connection
 - file imports for Health Connect, Apple Health, and Gadgetbridge
 
 To change container options, create a `.env` file beside `compose.yaml` with only the values you want to override. `.env.example` in the repository documents every Compose option.
@@ -92,7 +95,7 @@ Keep the backup somewhere outside the host running Meridian. To restore it, stop
 | Source | Import method | Schedule |
 |---|---|---|
 | Manual | Sleep entry form | On demand |
-| Fitbit | OAuth 2.0 | Every 30 minutes |
+| Google Health | OAuth 2.0 | Every 30 minutes |
 | Health Connect | Compatible JSON export | On demand |
 | Apple Health | ZIP or XML upload | On demand |
 | Gadgetbridge | SQLite upload | On demand |
@@ -106,20 +109,74 @@ Gadgetbridge imports support current Xiaomi sleep-time samples, the legacy
 Other device-specific Gadgetbridge schemas may not contain a compatible sleep
 representation.
 
-### Fitbit
+### Google Health
 
-1. Create a Personal app at [dev.fitbit.com/apps/new](https://dev.fitbit.com/apps/new).
-2. Set the callback URL to `https://your-domain/auth/fitbit/callback`. For local use, enter `http://localhost:8090/auth/fitbit/callback`.
-3. Choose Read-Only as the default access type.
-4. Save the client ID and client secret on Meridian's Settings page, then select Connect.
+Google Health uses a Google Cloud OAuth client that belongs to your Meridian
+installation. The shortest setup is:
 
-The first connection imports the previous 30 days. Later syncs run every 30
-minutes and reread the last three days to catch delayed Fitbit records. If
-Fitbit is still processing sleep after wake-up, Meridian shows a waiting state,
-retries automatically, and creates the day's schedule when the completed main
-sleep appears.
+1. In a Google Cloud project, [enable the Google Health API](https://developers.google.com/health/setup).
+2. In Google Auth Platform, configure an External audience and add only
+   `https://www.googleapis.com/auth/googlehealth.sleep.readonly` under Data
+   Access.
+3. Create an OAuth 2.0 client with application type **Web application**. Add the
+   exact redirect URI shown on Meridian's Settings page. Authorized JavaScript
+   origins can remain empty because Meridian completes OAuth on the server:
 
-Fitbit says its Web API will be deprecated in September 2026. Existing Fitbit support may need to change when Google publishes its replacement.
+   ```text
+   http://127.0.0.1:8090/auth/google-health/callback
+   ```
+
+   For local development, plain HTTP is valid only for `localhost` and loopback
+   IPs. The scheme, host, port, path, and trailing slash must match exactly, so
+   `localhost` and `127.0.0.1` are not interchangeable.
+
+   Use `https://your-domain/auth/google-health/callback` for a deployed instance.
+   The public Site URL must be an HTTPS origin with no subpath. A reverse proxy
+   may terminate TLS and forward plain HTTP to Meridian on the private network;
+   Google only sees the public HTTPS callback.
+4. Put the client ID and secret in `.env`, then restart Meridian:
+
+   ```dotenv
+   GOOGLE_HEALTH_CLIENT_ID=your-client-id
+   GOOGLE_HEALTH_CLIENT_SECRET=your-client-secret
+   ```
+
+5. In Meridian Settings, select **Connect** and approve read-only sleep access.
+
+For a single-user personal install, you can enter the client ID and secret
+directly in Settings instead. Instance-wide environment variables are preferred:
+the secret is not rendered in the page and every Meridian user gets a one-click
+connection.
+
+While the OAuth app is in Testing, add your Google account as a test user.
+Testing refresh tokens expire after seven days, so publish the OAuth app for a
+durable personal connection. An unverified published app shows Google's warning
+and is limited to 100 lifetime user grants. The read-only sleep scope is
+restricted; public distribution requires OAuth verification and Google's
+third-party security assessment. Keep the OAuth secret, Meridian `.env`, and
+`/pb_data` backup private.
+
+This web-server flow is the simplest fit for Meridian:
+
+- one Web application client can serve every Meridian user, with credentials
+  supplied once through environment variables;
+- a Desktop application client and arbitrary loopback port are useful for a
+  local CLI such as `ghealth`, but do not match Meridian's hosted callback;
+- service accounts cannot replace end-user consent for personal Google Health
+  data; and
+- Google Auth Platform consumer OAuth clients are configured in Cloud Console.
+  `gcloud` can enable the API, but it does not create or update this Web
+  application client or its consent-screen scopes.
+
+The first connection imports today plus the previous 30 calendar days. Later
+syncs run every 30 minutes and reread today plus the previous three days to
+catch delayed device records. If
+Google Health is still processing a newly detected sleep, Meridian shows a
+waiting state and retries automatically before treating it as a completed
+night. Polling is deliberate for local and self-hosted installations because it
+does not require a public HTTPS subscriber or Google Cloud IAM setup. Google
+Health webhooks are a better alternative for a larger public deployment that
+needs prompt updates and can operate that additional infrastructure.
 
 ## Development
 
@@ -132,7 +189,7 @@ cd meridian
 ./bin/mise run dev
 ```
 
-The development server is at [http://localhost:8090](http://localhost:8090). Air reloads the Go process while templ and Tailwind watch their source files.
+The development server is at [http://127.0.0.1:8090](http://127.0.0.1:8090). Air reloads the Go process while templ and Tailwind watch their source files.
 
 Useful tasks:
 

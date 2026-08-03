@@ -33,12 +33,12 @@ func TestNapDetection_NonUTCTimezone(t *testing.T) {
 	nightRec := core.NewRecord(c)
 	nightRec.Set("sleep_start", "2024-01-16 07:00:00") // 11pm PST Jan 15
 	nightRec.Set("sleep_end", "2024-01-16 15:00:00")   // 7am PST Jan 16
-	nightRec.Set("source", "fitbit")
+	nightRec.Set("source", "google_health")
 
 	napRec := core.NewRecord(c)
 	napRec.Set("sleep_start", "2024-01-16 22:00:00") // 2pm PST Jan 16
 	napRec.Set("sleep_end", "2024-01-16 22:30:00")   // 2:30pm PST Jan 16
-	napRec.Set("source", "fitbit")
+	napRec.Set("source", "google_health")
 
 	// With correct timezone: night=not nap, afternoon=nap
 	_, periods := ConvertSleepRecords([]*core.Record{nightRec, napRec}, la)

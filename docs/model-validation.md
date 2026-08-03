@@ -164,7 +164,8 @@ peak error, optimal display prominence, or personal planning benefit.
 
 Classification follows source provenance first:
 
-- an explicit Fitbit `isMainSleep` value or a manual nap choice wins;
+- an explicit source classification such as Google Health `metadata.nap`, or a
+  manual nap choice, wins;
 - overlapping imports are merged rather than double counted;
 - main-sleep fragments separated by no more than four hours form one episode;
 - the final fragment's end is the wake anchor;
@@ -179,24 +180,25 @@ The four-hour fragment gap and three-hour daytime rule are transparent product
 heuristics. Ambiguous records should remain editable; they are not universal
 clinical definitions.
 
-### Fitbit delayed-publication lifecycle
+### Google Health delayed-processing lifecycle
 
-Fitbit publishing completed sleep later in the morning is expected behavior:
+Google Health can expose a detected sleep before its processing is complete:
 
 | State | Meridian behavior |
 |---|---|
-| User has woken but today's main sleep is absent | Show “waiting for today's completed Fitbit sleep”; do not reuse yesterday's wake; do not consume the daily-summary deduplication key. |
-| Fitbit reports `meta.state=pending` | Retry once after four seconds, record that Fitbit was checked and is still processing, then retry on the normal 30-minute cycle. |
-| Completed sleep appears | Upsert the last three days, recompute the schedule, replace the waiting state, and reconcile the daily summary immediately. |
+| User has woken but today's main sleep is absent | Show “waiting for today's completed Google Health sleep”; do not reuse yesterday's wake; do not consume the daily-summary deduplication key. |
+| Google Health reports `metadata.processed=false` | Leave that session out until complete, record that Google Health was checked and is still processing, then retry on the normal 30-minute cycle. |
+| Completed sleep appears | Upsert today plus the previous three days, recompute the schedule, replace the waiting state, and reconcile the daily summary immediately. |
 | Sleep arrives within four hours of wake | Send one “Good morning!” summary. |
 | Sleep arrives later on the same local date | Send one “Today's sleep synced” summary rather than a belated greeting. |
-| Fitbit revises the same sleep later | Upsert by source and start time and recompute the dashboard; the summary remains deduplicated. |
+| Google Health revises the same sleep later | Upsert by source and start time and recompute the dashboard; the summary remains deduplicated. |
 | No current main sleep within 20 hours | Withhold the curve instead of anchoring a new day to an old wake. |
 
-Periodic Fitbit sync is therefore the primary wake-driven trigger. The 08:07
+Periodic Google Health sync is therefore the primary wake-driven trigger. The 08:07
 local job is a backup for manual and file-import users and is offset from the
-Fitbit cron to avoid a top-of-hour race. A manual “Sync now” either refreshes the
-day immediately or explains that Fitbit is still processing it.
+Google Health cron to avoid a top-of-hour race. A manual “Sync now” either
+refreshes the day immediately or explains that Google Health is still processing
+it.
 
 ### Confidence and recovery behavior
 
