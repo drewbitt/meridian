@@ -98,7 +98,10 @@ func ComputeUserSchedule(app core.App, userID string) (engine.Schedule, []engine
 
 	timing := estimateSleepTiming(periods, now, loc)
 	currentMidpoint, hasCurrentMidpoint := currentSleepMidpoint(periods, morningWake, loc)
-	unsupportedPhase := hasCurrentMidpoint && circularHourDistance(currentMidpoint, 3.5) > 5
+	// A single recent night is not enough evidence to classify a user's sleep
+	// phase as day/shift-oriented. Keep the preliminary forecast available
+	// until habitual timing has enough observations to be meaningful.
+	unsupportedPhase := timing.valid && hasCurrentMidpoint && circularHourDistance(currentMidpoint, 3.5) > 5
 	if timing.valid && circularHourDistance(timing.midpoint, 3.5) > 4 {
 		unsupportedPhase = true
 	}
