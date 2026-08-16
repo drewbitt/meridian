@@ -196,8 +196,8 @@ templ TodaySchedule(schedule engine.Schedule) {
 		if len(schedule.Points) == 0 {
 			if schedule.AwaitingSleepData {
 				<p class="text-gray-400">
-					<span class="text-amber-500">Waiting for today's completed Fitbit sleep.</span>
-					Meridian retries every 30 minutes and will replace this state automatically when Fitbit publishes it.
+					<span class="text-amber-500">Waiting for today's completed Google Health sleep.</span>
+					Meridian retries every 30 minutes and will replace this state automatically when Google finishes processing it.
 					if !schedule.LastSync.IsZero() {
 						<span> Last checked { formatScheduleSync(schedule.LastSync) }.</span>
 					}

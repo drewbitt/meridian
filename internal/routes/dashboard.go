@@ -63,7 +63,7 @@ func loadTodayData(app core.App, userID string) (engine.Schedule, engine.SleepDe
 			// sunrise/sunset habits resolve on every request, not only on the
 			// first uncached computation.
 			if settings != nil {
-				schedule.LastSync = services.FitbitLastAttempt(settings)
+				schedule.LastSync = services.GoogleHealthLastAttempt(settings)
 			}
 			lat, lng, _ := services.CoordinatesFromSettings(settings)
 			solar := services.GetSolarTimes(lat, lng, time.Now().In(loc), false)

@@ -943,7 +943,7 @@ func TestAccuracy_DebtTaperFormula(t *testing.T) {
 }
 
 // TestAccuracy_MissingDataGapImpact simulates what happens when the user has
-// historical sleep data but recent days are missing (Fitbit sync failed, user
+// historical sleep data but recent days are missing (device sync failed, user
 // didn't wear tracker, etc). This proves the silent debt underestimation bug.
 func TestAccuracy_MissingDataGapImpact(t *testing.T) {
 	loc := time.UTC

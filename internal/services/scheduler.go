@@ -23,7 +23,7 @@ func UpdateUserSchedule(app core.App, userID string) error {
 
 // RunMorningJob computes and stores the energy schedule for a user,
 // and dispatches scheduled notifications if enabled.
-// Notification delivery is idempotent per day even when Fitbit sync or a
+// Notification delivery is idempotent per day even when Google Health sync or a
 // manual entry already created today's schedule.
 func RunMorningJob(app core.App, userID string) error {
 	loc := UserLocation(app, userID)

@@ -2,8 +2,6 @@ package services
 
 import (
 	"net/http"
-	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +11,12 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 )
+
+type notificationRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn notificationRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func TestComputeUserSchedule_NoSleepDataHasNoForecast(t *testing.T) {
 	app, err := tests.NewTestApp()
@@ -97,15 +101,18 @@ func TestUpsertSleepRecord_IsIdempotentAndPreservesDistinctImports(t *testing.T)
 }
 
 func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T) {
-	var mu sync.Mutex
 	var titles []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
+	previousClient := httpClient
+	httpClient = &http.Client{Transport: notificationRoundTripFunc(func(r *http.Request) (*http.Response, error) {
 		titles = append(titles, r.Header.Get("Title"))
-		mu.Unlock()
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    r,
+		}, nil
+	})}
+	t.Cleanup(func() { httpClient = previousClient })
 
 	app, err := tests.NewTestApp()
 	if err != nil {
@@ -128,7 +135,7 @@ func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T)
 	settings.Set("user", user.Id)
 	settings.Set("sleep_need_hours", 8)
 	settings.Set("notifications_enabled", true)
-	settings.Set("ntfy_server", srv.URL)
+	settings.Set("ntfy_server", "https://ntfy.invalid")
 	settings.Set("ntfy_topic", "test-topic")
 	settings.Set("timezone", "UTC")
 	if err := app.Save(settings); err != nil {
@@ -168,8 +175,6 @@ func TestRunMorningJob_ExistingScheduleDoesNotSuppressNotification(t *testing.T)
 		t.Fatalf("second morning job: %v", err)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
 	greetings := 0
 	for _, title := range titles {
 		if title == "Good morning!" {

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/drewbitt/meridian/assets"
+	"github.com/drewbitt/meridian/internal/ingest"
 	"github.com/drewbitt/meridian/internal/routes"
 	"github.com/drewbitt/meridian/internal/schema"
 	"github.com/drewbitt/meridian/internal/services"
@@ -70,23 +72,23 @@ func main() {
 		},
 	})
 
-	// Sync Fitbit immediately on startup so data isn't stale until the first
+	// Sync Google Health immediately on startup so data isn't stale until the first
 	// cron tick (up to 30 min away). Runs in a goroutine to avoid blocking serve.
 	app.OnServe().Bind(&hook.Handler[*core.ServeEvent]{
-		Id: "startup-fitbit-sync",
+		Id: "startup-google-health-sync",
 		Func: func(se *core.ServeEvent) error {
-			go syncFitbitForAllUsers(app)
+			go syncGoogleHealthForAllUsers(app)
 			return se.Next()
 		},
 	})
 
-	app.Cron().MustAdd("fitbit-sync", "*/30 * * * *", func() {
-		syncFitbitForAllUsers(app)
+	app.Cron().MustAdd("google-health-sync", "*/30 * * * *", func() {
+		syncGoogleHealthForAllUsers(app)
 	})
 
 	// Morning job is a backup for manual/file-import users and runs at :07 to
-	// avoid racing the :00/:30 Fitbit reconciliation. It only acts for users
-	// whose local hour is 8.
+	// avoid racing the :00/:30 Google Health reconciliation. It only acts for
+	// users whose local hour is 8.
 	app.Cron().MustAdd("morning-schedule", "7 * * * *", func() {
 		runMorningJobForAllUsers(app)
 	})
@@ -95,7 +97,7 @@ func main() {
 	// upcoming events (caffeine cutoff, melatonin, nap window, habits)
 	// and send notifications that fall within the next 10-minute window.
 	// Always reads the latest schedule, so mid-day changes (nap detection,
-	// Fitbit sync) are reflected immediately.
+	// Google Health sync) are reflected immediately.
 	app.Cron().MustAdd("notification-dispatch", "*/5 * * * *", func() {
 		dispatchNotificationsForAllUsers(app)
 	})
@@ -107,7 +109,7 @@ func main() {
 
 func healthy() bool {
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://localhost:8090/api/health")
+	resp, err := client.Get("http://127.0.0.1:8090/api/health")
 	if err != nil {
 		return false
 	}
@@ -145,33 +147,49 @@ func dispatchNotificationsForAllUsers(app *pocketbase.PocketBase) {
 	}
 }
 
-func syncFitbitForAllUsers(app *pocketbase.PocketBase) {
-	settings, err := app.FindRecordsByFilter("settings", "fitbit_access_token != ''", "", 0, 0, nil)
+func syncGoogleHealthForAllUsers(app *pocketbase.PocketBase) {
+	settings, err := app.FindRecordsByFilter(
+		"settings",
+		"google_health_access_token != ''",
+		"",
+		0,
+		0,
+		nil,
+	)
 	if err != nil {
-		slog.Error("failed to find fitbit users for sync", "error", err)
+		slog.Error("failed to find google health users for sync", "error", err)
 		return
 	}
 
 	for _, s := range settings {
 		loc := services.LocationFromSettings(s)
 		now := time.Now().In(loc)
-		// Pull 3 days back (not just 1) to catch missed syncs, Fitbit sync
+		// Pull 3 days back (not just 1) to catch missed syncs, Google Health
 		// delays, and timezone edge cases. The upsert is idempotent so
 		// re-fetching already-synced days is harmless.
 		start := now.AddDate(0, 0, -3)
-		if err := services.SyncFitbitUser(app, s, start, now); err != nil {
-			slog.Error("fitbit sync failed", "user_id", s.GetString("user"), "error", err)
+		syncErr := services.SyncGoogleHealthUser(app, s, start, now)
+		if syncErr != nil && !errors.Is(syncErr, ingest.ErrSleepPending) {
+			slog.Error("google health sync failed", "user_id", s.GetString("user"), "error", syncErr)
 			continue
+		}
+		if errors.Is(syncErr, ingest.ErrSleepPending) {
+			slog.Info("google health sleep still processing", "user_id", s.GetString("user"))
 		}
 		// Use RefreshScheduleIfNeeded so nap detection + post-nap notifications work.
 		if _, err := services.RefreshScheduleIfNeeded(app, s.GetString("user")); err != nil {
 			slog.Error("schedule update after sync failed", "user_id", s.GetString("user"), "error", err)
 		}
-		// If Fitbit published the completed main sleep after the fixed 8am
-		// job, send the still-unsent daily summary now. RunMorningJob is
-		// idempotent and withholds the summary until today's wake is present.
+		// Reconcile a summary that was withheld while today's main sleep was
+		// still processing. RunMorningJob is idempotent.
 		if err := services.RunMorningJob(app, s.GetString("user")); err != nil {
-			slog.Error("daily summary reconciliation after sync failed", "user_id", s.GetString("user"), "error", err)
+			slog.Error(
+				"daily summary reconciliation after sync failed",
+				"user_id",
+				s.GetString("user"),
+				"error",
+				err,
+			)
 		}
 	}
 }
