@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/drewbitt/meridian/internal/engine"
 	"github.com/drewbitt/meridian/internal/services"
 	"github.com/drewbitt/meridian/internal/templates"
 	"github.com/pocketbase/pocketbase/core"
@@ -182,10 +181,4 @@ func applyHabitForm(record *core.Record, re *core.RequestEvent) {
 	record.Set("custom_time", form.Get("custom_time"))
 	record.Set("notify", form.Get("notify") == "on")
 	record.Set("enabled", form.Get("enabled") == "on")
-}
-
-// loadHabitsForDashboard resolves all enabled habits for the dashboard display.
-func loadHabitsForDashboard(app core.App, userID string, schedule engine.Schedule) []services.ResolvedHabit {
-	loc := services.UserLocation(app, userID)
-	return services.ResolveAllHabits(app, userID, schedule, loc)
 }

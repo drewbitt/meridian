@@ -269,7 +269,3 @@ func parseGBActivitySamples(db *sql.DB) ([]SleepRecord, error) {
 
 	return records, nil
 }
-
-func validSleepInterval(start, end time.Time) bool {
-	return end.After(start) && end.Sub(start) <= 24*time.Hour
-}

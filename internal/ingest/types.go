@@ -56,3 +56,18 @@ func SleepNightDate(t time.Time) time.Time {
 func LikelyNap(start, end time.Time) bool {
 	return start.Hour() >= 10 && end.After(start) && end.Sub(start) < 2*time.Hour
 }
+
+// validSleepInterval checks that end is after start and duration is reasonable (<= 24h).
+func validSleepInterval(start, end time.Time) bool {
+	return end.After(start) && end.Sub(start) <= 24*time.Hour
+}
+
+// parseTimeLayouts parses a date/time string trying multiple layout formats in order.
+func parseTimeLayouts(s string, layouts []string) (time.Time, error) {
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, ErrParseFailed
+}

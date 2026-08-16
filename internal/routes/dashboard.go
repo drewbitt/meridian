@@ -25,7 +25,7 @@ func registerDashboardRoutes(se *core.ServeEvent, app core.App) {
 			debt = engine.SleepDebt{}
 		}
 
-		resolvedHabits := loadHabitsForDashboard(app, userID, schedule)
+		resolvedHabits := services.ResolveAllHabits(app, userID, schedule, services.UserLocation(app, userID))
 		return render(re, templates.Dashboard(schedule, debt, resolvedHabits))
 	})
 
