@@ -104,18 +104,18 @@ templ presetCategory(category string, presets []services.HabitPreset, active map
 }
 
 templ presetCard(p services.HabitPreset, isActive bool) {
-	<div style="display:flex;align-items:flex-start;gap:0.75rem" class={ "px-5 py-4",
+	<div class={ "flex items-start gap-3 px-5 py-4",
 		templ.KV("bg-night-deep/30", !isActive),
 		templ.KV("bg-dusk/5", isActive) }>
-		<span style="flex-shrink:0" class={ "text-base mt-0.5", presetIconClass(p.Category) }>{ p.Icon }</span>
-		<div style="flex:1 1 0%;min-width:0">
+		<span class={ "shrink-0 text-base mt-0.5", presetIconClass(p.Category) }>{ p.Icon }</span>
+		<div class="flex-1 min-w-0">
 			<div class="text-sm font-medium text-gray-200">{ p.Name }</div>
 			<div class="text-xs text-gray-400 mt-1 leading-relaxed">{ p.Description }</div>
 		</div>
 		if isActive {
-			<span style="flex-shrink:0" class="text-[10px] text-dusk font-mono mt-1">active</span>
+			<span class="shrink-0 text-[10px] text-dusk font-mono mt-1">active</span>
 		} else {
-			<form method="POST" action="/habits/preset" style="flex-shrink:0;margin-top:0.125rem">
+			<form method="POST" action="/habits/preset" class="shrink-0 mt-0.5">
 				<input type="hidden" name="key" value={ p.Key }/>
 				<button type="submit" class="text-xs text-dusk hover:text-white border border-dusk/30 hover:border-dusk/60 rounded-md px-3 py-1.5 transition-colors whitespace-nowrap">
 					Enable
@@ -126,7 +126,7 @@ templ presetCard(p services.HabitPreset, isActive bool) {
 }
 
 templ habitCard(h *core.Record) {
-	<div style="display:flex;align-items:center;justify-content:space-between;gap:1rem" class={ "rounded-lg border border-gray-700 bg-night-deep/50 px-5 py-4",
+	<div class={ "flex items-center justify-between gap-4 rounded-lg border border-gray-700 bg-night-deep/50 px-5 py-4",
 		templ.KV("opacity-50", !h.GetBool("enabled")) }>
 		<div style="min-width:0">
 			<span class="text-sm font-medium text-gray-200">{ h.GetString("name") }</span>
@@ -393,25 +393,3 @@ func habitTextColor(anchor string) string {
 	}
 }
 
-// DashboardHabitsCount returns the number of upcoming habits (used to decide
-// whether to render the section on the dashboard, avoiding an empty container).
-func DashboardHabitsCount(resolved []services.ResolvedHabit) int {
-	n := 0
-	now := time.Now()
-	for _, rh := range resolved {
-		if !rh.Time.Before(now) {
-			n++
-		}
-	}
-	return n
-}
-
-// FormatHabitTimeISO returns the ISO time string for use in templates.
-func FormatHabitTimeISO(t time.Time) string {
-	return isoTime(t)
-}
-
-// IsUpcoming returns true if the given time is in the future.
-func IsUpcoming(t time.Time) bool {
-	return !t.Before(time.Now())
-}

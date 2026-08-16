@@ -55,8 +55,8 @@ func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 		if err != nil {
 			continue
 		}
-		if !end.After(start) || end.Sub(start).Minutes() > 24*60 {
-			continue // skip malformed or implausibly long sessions
+		if !validSleepInterval(start, end) {
+			continue
 		}
 
 		rec := SleepRecord{
@@ -117,16 +117,14 @@ func ParseHealthConnect(r io.Reader) ([]SleepRecord, error) {
 }
 
 func parseHCTime(s string) (time.Time, error) {
-	// Health Connect exports use ISO 8601.
 	formats := []string{
 		time.RFC3339,
 		"2006-01-02T15:04:05.000Z",
 		"2006-01-02T15:04:05",
 	}
-	for _, f := range formats {
-		if t, err := time.Parse(f, s); err == nil {
-			return t, nil
-		}
+	t, err := parseTimeLayouts(s, formats)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: %s", errParseTime, s)
 	}
-	return time.Time{}, fmt.Errorf("%w: %s", errParseTime, s)
+	return t, nil
 }

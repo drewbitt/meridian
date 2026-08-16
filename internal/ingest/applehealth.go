@@ -160,18 +160,11 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 			continue
 		}
 
-		if !end.After(start) {
-			continue // malformed: end before or equal to start
+		if !validSleepInterval(start, end) {
+			continue
 		}
 		mins := int(end.Sub(start).Minutes())
-		if mins <= 0 || mins > 24*60 {
-			continue // skip negative or implausibly long durations
-		}
-		nightStart := start
-		if start.Hour() < 12 {
-			nightStart = start.AddDate(0, 0, -1)
-		}
-		dateKey := nightStart.Format("2006-01-02")
+		dateKey := SleepNightDate(start).Format("2006-01-02")
 
 		nd, ok := nights[dateKey]
 		if !ok {
@@ -229,16 +222,14 @@ func parseAppleHealthXML(r io.Reader) ([]SleepRecord, error) {
 }
 
 func parseAHTime(s string) (time.Time, error) {
-	// Apple Health uses format: "2023-01-15 23:30:00 -0800"
 	formats := []string{
 		"2006-01-02 15:04:05 -0700",
 		time.RFC3339,
 		"2006-01-02T15:04:05",
 	}
-	for _, f := range formats {
-		if t, err := time.Parse(f, s); err == nil {
-			return t, nil
-		}
+	t, err := parseTimeLayouts(s, formats)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: %s", errParseAHTime, s)
 	}
-	return time.Time{}, fmt.Errorf("%w: %s", errParseAHTime, s)
+	return t, nil
 }
