@@ -15,6 +15,7 @@ templ Login(registrationEnabled bool, errMsg string) {
 							type="email"
 							name="identity"
 							placeholder="Email"
+							aria-label="Email"
 							autocomplete="email"
 							required
 							class="input-field"
@@ -25,6 +26,7 @@ templ Login(registrationEnabled bool, errMsg string) {
 							type="password"
 							name="password"
 							placeholder="Password"
+							aria-label="Password"
 							autocomplete="current-password"
 							required
 							class="input-field"
@@ -68,6 +70,7 @@ templ Register(errMsg string) {
 							type="email"
 							name="email"
 							placeholder="Email"
+							aria-label="Email"
 							autocomplete="email"
 							required
 							class="input-field"
@@ -78,6 +81,7 @@ templ Register(errMsg string) {
 							type="password"
 							name="password"
 							placeholder="Password (min 8 characters)"
+							aria-label="Password"
 							autocomplete="new-password"
 							required
 							minlength="8"
@@ -89,6 +93,7 @@ templ Register(errMsg string) {
 							type="password"
 							name="password_confirm"
 							placeholder="Confirm password"
+							aria-label="Confirm password"
 							autocomplete="new-password"
 							required
 							minlength="8"
