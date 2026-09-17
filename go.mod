@@ -9,7 +9,7 @@ require (
 	github.com/google/go-intervals v0.0.2
 	github.com/pocketbase/pocketbase v0.39.9
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
-	golang.org/x/oauth2 v0.36.0
+	golang.org/x/oauth2 v0.37.0
 	modernc.org/sqlite v1.54.0
 )
 
