@@ -4,9 +4,6 @@
 	configMigration: true,
 	platformAutomerge: true,
 	postUpdateOptions: ['gomodTidy'],
-	constraints: {
-		go: '1.26'
-	},
 	minimumReleaseAge: '3 days',
 	prConcurrentLimit: 5,
 	timezone: 'America/New_York',
