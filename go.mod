@@ -2,7 +2,7 @@ module github.com/drewbitt/meridian
 
 go 1.26.0
 
-toolchain go1.27.1
+toolchain go1.27.3
 
 require (
 	github.com/a-h/templ v0.3.1070
