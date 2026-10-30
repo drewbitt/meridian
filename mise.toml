@@ -3,7 +3,7 @@
 go = "1.27.3"
 "go:github.com/a-h/templ/cmd/templ" = "0.3.1100"
 "go:github.com/air-verse/air" = "1.67.4"
-golangci-lint = "2.14.0"
+golangci-lint = "2.15.0"
 git-cliff = "2.14.2"
 
 [hooks]
