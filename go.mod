@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.27.3
 
 require (
-	github.com/a-h/templ v0.3.1070
+	github.com/a-h/templ v0.3.1100
 	github.com/google/go-intervals v0.0.2
 	github.com/pocketbase/pocketbase v0.39.11
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
