@@ -3,7 +3,7 @@ FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm AS build
 
 ARG TARGETOS TARGETARCH
 # renovate: datasource=github-releases depName=tailwindlabs/tailwindcss
-ARG TAILWIND_VERSION=4.3.3
+ARG TAILWIND_VERSION=4.3.5
 # renovate: datasource=npm depName=chart.js
 ARG CHARTJS_VERSION=4.5.1
 # renovate: datasource=npm depName=temporal-polyfill
