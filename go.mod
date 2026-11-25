@@ -10,7 +10,7 @@ require (
 	github.com/pocketbase/pocketbase v0.39.11
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
 	golang.org/x/oauth2 v0.38.0
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
